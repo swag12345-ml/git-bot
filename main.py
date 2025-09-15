@@ -3,6 +3,8 @@ import os
 import json
 import torch
 import asyncio
+import tempfile
+import uuid
 from dotenv import load_dotenv
 import fitz  # PyMuPDF for text extraction
 import easyocr  # GPU-accelerated OCR
@@ -330,6 +332,21 @@ class FinancialCalculator:
     @staticmethod
     def calculate_budget_summary(income: float, expenses: Dict[str, float]) -> Dict[str, Any]:
         """Calculate comprehensive budget summary with detailed metrics"""
+        if income <= 0:
+            st.warning("⚠️ Please enter a valid income amount greater than zero.")
+            return {
+                'total_income': 0,
+                'total_expenses': 0,
+                'savings': 0,
+                'savings_rate': 0,
+                'essential_expenses': 0,
+                'discretionary_expenses': 0,
+                'expense_breakdown': {},
+                'financial_health': 'Critical',
+                'health_color': '#f44336',
+                'recommendations': ['Please enter valid income and expense data.']
+            }
+        
         total_expenses = sum(expenses.values())
         savings = income - total_expenses
         savings_rate = (savings / income * 100) if income > 0 else 0
@@ -490,6 +507,7 @@ class FinancialCalculator:
                 # Ensure minimum payment can actually pay off the debt
                 monthly_interest = balance * (interest_rate / 100 / 12)
                 if minimum_payment <= monthly_interest and interest_rate > 0:
+                    st.warning(f"⚠️ Minimum payment for {debt.get('name', 'Unknown Debt')} doesn't cover monthly interest. Adjusting payment amount.")
                     # Adjust minimum payment to be slightly higher than monthly interest
                     minimum_payment = monthly_interest * 1.1 + 10
                 
@@ -503,6 +521,7 @@ class FinancialCalculator:
                 continue
         
         if not valid_debts:
+            st.warning("⚠️ No valid debt data found. Please check your debt entries.")
             return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0}
         
         total_debt = sum(debt['balance'] for debt in valid_debts)
@@ -529,27 +548,17 @@ class FinancialCalculator:
                 balance = debt['balance']
                 rate = debt['interest_rate'] / 100 / 12
                 
-                try:
-                    if rate > 0 and rate < 1:  # Valid interest rate
-                        # Amortization formula
-                        if monthly_payment > balance * rate:  # Payment covers interest
-                            months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
-                        else:
-                            # Payment doesn't cover interest - use simple calculation
-                            months = balance / (monthly_payment - balance * rate) if monthly_payment > balance * rate else 999
-                    else:
-                        # No interest or invalid rate
-                        months = balance / monthly_payment if monthly_payment > 0 else 999
-                    
-                    # Validate and clean the months calculation
-                    if not np.isfinite(months) or months <= 0 or np.isnan(months):
-                        months = max(1, balance / monthly_payment) if monthly_payment > 0 else 999
-                    
-                    months = max(1, min(999, int(np.ceil(months))))  # Cap at reasonable maximum
-                    
-                except (ValueError, ZeroDivisionError, OverflowError):
-                    # Fallback calculation
-                    months = max(1, int(balance / monthly_payment)) if monthly_payment > 0 else 999
+                # Fixed debt payoff calculation
+                if rate <= 0:
+                    months = int(np.ceil(balance / monthly_payment)) if monthly_payment > 0 else 999
+                elif monthly_payment <= balance * rate:
+                    months = 999   # payment doesn't even cover interest
+                else:
+                    months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
+                    months = int(np.ceil(months))
+                
+                # Ensure reasonable bounds
+                months = max(1, min(999, months))
                 
                 interest_paid = max(0, (monthly_payment * months) - balance)
                 total_interest += interest_paid
@@ -590,6 +599,22 @@ class FinancialCalculator:
     def calculate_retirement_needs(current_age: int, retirement_age: int, current_income: float, 
                                  current_savings: float, monthly_contribution: float) -> Dict[str, Any]:
         """Calculate comprehensive retirement planning with multiple scenarios"""
+        if current_income <= 0:
+            st.warning("⚠️ Please enter a valid current income amount.")
+            return {
+                'current_age': current_age,
+                'retirement_age': retirement_age,
+                'years_to_retirement': max(1, retirement_age - current_age),
+                'current_savings': current_savings,
+                'monthly_contribution': monthly_contribution,
+                'retirement_corpus_needed': 0,
+                'projected_savings': 0,
+                'retirement_gap': 0,
+                'required_monthly_contribution': 0,
+                'scenarios': {},
+                'recommendations': ['Please enter valid income data.']
+            }
+        
         years_to_retirement = max(1, retirement_age - current_age)
         annual_contribution = monthly_contribution * 12
         
@@ -1854,7 +1879,9 @@ def main():
         all_extracted_text = []
         
         for uploaded_file in uploaded_files:
-            file_path = os.path.join(working_dir, uploaded_file.name)
+            # Use safe file handling with UUID prefix
+            safe_filename = f"{uuid.uuid4().hex}_{uploaded_file.name}"
+            file_path = os.path.join(tempfile.gettempdir(), safe_filename)
             
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
@@ -1865,6 +1892,12 @@ def main():
                 st.sidebar.success(f"✅ Processed {uploaded_file.name}")
             except Exception as e:
                 st.sidebar.error(f"⚠️ Error processing {uploaded_file.name}: {e}")
+            finally:
+                # Clean up temporary file
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
 
         if all_extracted_text:
             vectorstore = setup_vectorstore(all_extracted_text)
@@ -1913,9 +1946,7 @@ def main():
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
                     try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        assistant_response = loop.run_until_complete(get_response(user_input, persona_info))
+                        assistant_response = asyncio.run(get_response(user_input, persona_info))
                     except Exception as e:
                         assistant_response = get_fallback_response(user_input, selected_persona)
                 
