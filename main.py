@@ -405,7 +405,7 @@ with control_col:
                         st.session_state.chat_history.append(("assistant", f"{cf} flow complete. Ask follow-up questions anytime.", datetime.datetime.now()))
                         st.session_state.current_flow = None
                         st.session_state.flow_step = 0
-                    st.experimental_rerun()
+                    st.rerun()
         else:
             st.write("Flow complete.")
     st.markdown("---")
@@ -508,6 +508,7 @@ st.markdown(
     "- To enable OCR fallback, install `easyocr` and `pdf2image` (plus poppler for pdf2image). For production GPUs, configure the reader accordingly.\n"
     "- If you paste your working `ChatGroq` initialization snippet and LangChain versions, I can integrate them into `create_chain_safe` and the direct-call section."
 )
+
 
 
 
