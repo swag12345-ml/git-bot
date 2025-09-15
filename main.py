@@ -486,7 +486,7 @@ if user_input:
             pass
 
     # rerun to show freshly appended messages
-    st.experimental_rerun()
+    st.rerun()
 
 # -------------------- (Optional) Analytics / Visualizations area --------------------
 st.markdown("---")
@@ -508,4 +508,5 @@ st.markdown(
     "- To enable OCR fallback, install `easyocr` and `pdf2image` (plus poppler for pdf2image). For production GPUs, configure the reader accordingly.\n"
     "- If you paste your working `ChatGroq` initialization snippet and LangChain versions, I can integrate them into `create_chain_safe` and the direct-call section."
 )
+
 
