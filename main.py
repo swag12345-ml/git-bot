@@ -363,4 +363,5 @@ if user_input:
             # Some memory implementations differ; ignore if it fails
             pass
     # re-run to show updated history (in practice, Streamlit will show as appended)
-    st.experimental_rerun()
+    st.rerun()
+
