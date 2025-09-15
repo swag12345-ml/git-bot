@@ -359,7 +359,7 @@ with control_col:
         st.session_state.flow_step = 0
         starter_q = CONVERSATIONAL_FLOWS.get(flow_choice, [f"Starting {flow_choice}."])[0]
         st.session_state.chat_history.append(("assistant", f"Starting **{flow_choice}** flow. {starter_q}", datetime.datetime.now()))
-        st.experimental_rerun()
+        st.rerun()
 
     if st.session_state.current_flow:
         cf = st.session_state.current_flow
@@ -508,5 +508,6 @@ st.markdown(
     "- To enable OCR fallback, install `easyocr` and `pdf2image` (plus poppler for pdf2image). For production GPUs, configure the reader accordingly.\n"
     "- If you paste your working `ChatGroq` initialization snippet and LangChain versions, I can integrate them into `create_chain_safe` and the direct-call section."
 )
+
 
 
