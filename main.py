@@ -22,14 +22,23 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
 import io
 import base64
+import logging
+import traceback
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Set Streamlit Page Config
-st.set_page_config(
-    page_title="AI Financial Advisor - LLAMA 3.3", 
-    page_icon="💰", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+try:
+    st.set_page_config(
+        page_title="AI Financial Advisor - LLAMA 3.3", 
+        page_icon="💰", 
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+except Exception as e:
+    logger.warning(f"Page config already set: {e}")
 
 # Custom CSS for financial advisor styling
 st.markdown("""
@@ -99,755 +108,992 @@ st.markdown("""
 load_dotenv()
 working_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Ensure GPU availability
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-torch.backends.cudnn.benchmark = True  # Optimize GPU performance
+# Ensure GPU availability with error handling
+try:
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    if DEVICE == "cuda":
+        torch.backends.cudnn.benchmark = True  # Optimize GPU performance
+except Exception as e:
+    logger.warning(f"GPU setup failed: {e}")
+    DEVICE = "cpu"
 
-# Load GROQ API Key
+# Load GROQ API Key with better error handling
 def load_groq_api_key():
-    """Loads the GROQ API key from config.json"""
+    """Loads the GROQ API key from config.json with fallback options"""
     try:
-        with open(os.path.join(working_dir, "config.json"), "r") as f:
-            return json.load(f).get("GROQ_API_KEY")
+        config_path = os.path.join(working_dir, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                return config.get("GROQ_API_KEY")
+        else:
+            # Try environment variable as fallback
+            return os.getenv("GROQ_API_KEY")
     except FileNotFoundError:
-        st.error("🚨 config.json not found. Please add your GROQ API key.")
-        st.stop()
+        return os.getenv("GROQ_API_KEY")
+    except json.JSONDecodeError:
+        st.error("🚨 config.json is malformed. Please check the JSON format.")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading GROQ API key: {e}")
+        return None
 
 groq_api_key = load_groq_api_key()
 if not groq_api_key:
-    st.error("🚨 GROQ_API_KEY is missing. Check your config.json file.")
-    st.stop()
+    st.warning("🚨 GROQ_API_KEY is missing. Some features may be limited. Please add your API key to config.json or environment variables.")
 
-# Initialize EasyOCR with GPU support
+# Initialize EasyOCR with GPU support and error handling
+reader = None
 try:
     reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available())
 except Exception as e:
-    st.warning(f"EasyOCR initialization failed: {e}. OCR features will be limited.")
+    logger.warning(f"EasyOCR initialization failed: {e}. OCR features will be limited.")
     reader = None
 
 class FinancialCalculator:
     """Core financial calculation functions with advanced analytics"""
     
     @staticmethod
+    def safe_float_conversion(value, default=0.0):
+        """Safely convert value to float with default fallback"""
+        try:
+            if value is None or value == "":
+                return default
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+    
+    @staticmethod
     def calculate_budget_summary(income: float, expenses: Dict[str, float]) -> Dict[str, Any]:
         """Calculate comprehensive budget summary with detailed metrics"""
-        total_expenses = sum(expenses.values())
-        savings = income - total_expenses
-        savings_rate = (savings / income * 100) if income > 0 else 0
-        
-        # Categorize expenses for better analysis
-        essential_categories = ['housing', 'utilities', 'groceries', 'transportation', 'insurance', 'healthcare']
-        essential_expenses = sum(expenses.get(cat, 0) for cat in essential_categories if cat in expenses)
-        discretionary_expenses = total_expenses - essential_expenses
-        
-        # Financial health scoring
-        if savings_rate >= 20:
-            health_score = "Excellent"
-            health_color = "#4caf50"
-        elif savings_rate >= 10:
-            health_score = "Good"
-            health_color = "#ff9800"
-        elif savings_rate >= 0:
-            health_score = "Fair"
-            health_color = "#ff5722"
-        else:
-            health_score = "Critical"
-            health_color = "#f44336"
-        
-        return {
-            'total_income': income,
-            'total_expenses': total_expenses,
-            'savings': savings,
-            'savings_rate': savings_rate,
-            'essential_expenses': essential_expenses,
-            'discretionary_expenses': discretionary_expenses,
-            'expense_breakdown': expenses,
-            'financial_health': health_score,
-            'health_color': health_color,
-            'recommendations': FinancialCalculator._get_budget_recommendations(savings_rate, expenses, income)
-        }
+        try:
+            # Ensure all values are valid numbers
+            income = FinancialCalculator.safe_float_conversion(income, 0.0)
+            cleaned_expenses = {}
+            
+            for key, value in expenses.items():
+                cleaned_value = FinancialCalculator.safe_float_conversion(value, 0.0)
+                if cleaned_value > 0:  # Only include positive expenses
+                    cleaned_expenses[key] = cleaned_value
+            
+            total_expenses = sum(cleaned_expenses.values())
+            savings = income - total_expenses
+            savings_rate = (savings / income * 100) if income > 0 else 0
+            
+            # Categorize expenses for better analysis
+            essential_categories = ['housing', 'utilities', 'groceries', 'transportation', 'insurance', 'healthcare']
+            essential_expenses = sum(cleaned_expenses.get(cat, 0) for cat in essential_categories)
+            discretionary_expenses = total_expenses - essential_expenses
+            
+            # Financial health scoring with bounds checking
+            if savings_rate >= 20:
+                health_score = "Excellent"
+                health_color = "#4caf50"
+            elif savings_rate >= 10:
+                health_score = "Good"
+                health_color = "#ff9800"
+            elif savings_rate >= 0:
+                health_score = "Fair"
+                health_color = "#ff5722"
+            else:
+                health_score = "Critical"
+                health_color = "#f44336"
+            
+            return {
+                'total_income': income,
+                'total_expenses': total_expenses,
+                'savings': savings,
+                'savings_rate': max(-100, min(100, savings_rate)),  # Bound between -100% and 100%
+                'essential_expenses': essential_expenses,
+                'discretionary_expenses': max(0, discretionary_expenses),
+                'expense_breakdown': cleaned_expenses,
+                'financial_health': health_score,
+                'health_color': health_color,
+                'recommendations': FinancialCalculator._get_budget_recommendations(savings_rate, cleaned_expenses, income)
+            }
+        except Exception as e:
+            logger.error(f"Error in budget calculation: {e}")
+            return {
+                'total_income': 0,
+                'total_expenses': 0,
+                'savings': 0,
+                'savings_rate': 0,
+                'essential_expenses': 0,
+                'discretionary_expenses': 0,
+                'expense_breakdown': {},
+                'financial_health': 'Unknown',
+                'health_color': '#gray',
+                'recommendations': ['Unable to calculate budget. Please check your inputs.']
+            }
     
     @staticmethod
     def _get_budget_recommendations(savings_rate: float, expenses: Dict[str, float], income: float) -> List[str]:
         """Generate personalized budget recommendations"""
         recommendations = []
         
-        if savings_rate < 10:
-            recommendations.append("🎯 Aim to save at least 10% of your income")
+        try:
+            if savings_rate < 10:
+                recommendations.append("🎯 Aim to save at least 10% of your income")
+                
+            # Check for high expense categories
+            if income > 0:
+                housing_ratio = expenses.get('housing', 0) / income * 100
+                if housing_ratio > 30:
+                    recommendations.append(f"🏠 Consider reducing housing costs - currently {housing_ratio:.1f}% of income")
+                
+                if expenses.get('dining_out', 0) > expenses.get('groceries', 0):
+                    recommendations.append("🍽️ Consider cooking more at home to reduce dining expenses")
+                
+                if savings_rate >= 20:
+                    recommendations.append("🌟 Excellent savings rate! Consider investing surplus funds")
             
-        # Check for high expense categories
-        housing_ratio = expenses.get('housing', 0) / income * 100 if income > 0 else 0
-        if housing_ratio > 30:
-            recommendations.append("🏠 Consider reducing housing costs - currently {}% of income".format(round(housing_ratio, 1)))
-            
-        if expenses.get('dining_out', 0) > expenses.get('groceries', 0):
-            recommendations.append("🍽️ Consider cooking more at home to reduce dining expenses")
-            
-        if savings_rate >= 20:
-            recommendations.append("🌟 Excellent savings rate! Consider investing surplus funds")
+            if not recommendations:
+                recommendations.append("💡 Keep tracking your expenses to identify optimization opportunities")
+                
+        except Exception as e:
+            logger.error(f"Error generating budget recommendations: {e}")
+            recommendations = ["💡 Review your budget regularly to stay on track"]
             
         return recommendations
     
     @staticmethod
     def calculate_investment_allocation(risk_profile: str, time_horizon: int, capital: float, age: int = 35) -> Dict[str, Any]:
         """Calculate sophisticated investment allocation with age-based adjustments"""
-        
-        # Base allocations by risk profile
-        base_allocations = {
-            'conservative': {'stocks': 25, 'bonds': 65, 'cash': 10},
-            'moderate': {'stocks': 60, 'bonds': 30, 'cash': 10},
-            'aggressive': {'stocks': 85, 'bonds': 10, 'cash': 5}
-        }
-        
-        allocation = base_allocations.get(risk_profile.lower(), base_allocations['moderate']).copy()
-        
-        # Age-based adjustment (100 - age rule with modifications)
-        age_adjusted_stock = max(20, min(90, 110 - age))
-        
-        # Time horizon adjustments
-        if time_horizon < 3:
-            allocation['stocks'] = max(10, allocation['stocks'] - 30)
-            allocation['cash'] += 20
-            allocation['bonds'] += 10
-        elif time_horizon < 7:
-            allocation['stocks'] = max(20, allocation['stocks'] - 15)
-            allocation['bonds'] += 10
-            allocation['cash'] += 5
-        elif time_horizon > 20:
-            allocation['stocks'] = min(95, allocation['stocks'] + 10)
-            allocation['bonds'] = max(5, allocation['bonds'] - 8)
-            allocation['cash'] = max(0, allocation['cash'] - 2)
-        
-        # Blend with age-based allocation
-        allocation['stocks'] = int((allocation['stocks'] + age_adjusted_stock) / 2)
-        allocation['bonds'] = max(5, 95 - allocation['stocks'] - allocation['cash'])
-        
-        # Calculate dollar amounts
-        dollar_allocation = {
-            asset: (percentage / 100) * capital 
-            for asset, percentage in allocation.items()
-        }
-        
-        # Expected returns with market conditions
-        expected_returns = {
-            'stocks': 0.10,
-            'bonds': 0.04,
-            'cash': 0.02
-        }
-        
-        portfolio_return = sum(
-            (allocation[asset] / 100) * expected_returns[asset] 
-            for asset in allocation
-        )
-        
-        # Monte Carlo simulation (simplified)
-        projections = {}
-        for years in [5, 10, 20, 30]:
-            if years <= time_horizon:
-                # Conservative, expected, and optimistic scenarios
-                conservative = capital * ((1 + portfolio_return * 0.7) ** years)
-                expected = capital * ((1 + portfolio_return) ** years)
-                optimistic = capital * ((1 + portfolio_return * 1.3) ** years)
-                
-                projections[f'{years}_years'] = {
-                    'conservative': conservative,
-                    'expected': expected,
-                    'optimistic': optimistic
-                }
-        
-        return {
-            'allocation_percentages': allocation,
-            'allocation_dollars': dollar_allocation,
-            'expected_annual_return': portfolio_return,
-            'projections': projections,
-            'risk_level': risk_profile,
-            'volatility_estimate': FinancialCalculator._calculate_portfolio_volatility(allocation)
-        }
+        try:
+            # Input validation
+            risk_profile = str(risk_profile).lower()
+            time_horizon = max(1, int(time_horizon))
+            capital = max(0, FinancialCalculator.safe_float_conversion(capital, 0))
+            age = max(18, min(100, int(age)))
+            
+            # Base allocations by risk profile
+            base_allocations = {
+                'conservative': {'stocks': 25, 'bonds': 65, 'cash': 10},
+                'moderate': {'stocks': 60, 'bonds': 30, 'cash': 10},
+                'aggressive': {'stocks': 85, 'bonds': 10, 'cash': 5}
+            }
+            
+            allocation = base_allocations.get(risk_profile, base_allocations['moderate']).copy()
+            
+            # Age-based adjustment (100 - age rule with modifications)
+            age_adjusted_stock = max(20, min(90, 110 - age))
+            
+            # Time horizon adjustments
+            if time_horizon < 3:
+                allocation['stocks'] = max(10, allocation['stocks'] - 30)
+                allocation['cash'] = min(50, allocation['cash'] + 20)
+                allocation['bonds'] = 100 - allocation['stocks'] - allocation['cash']
+            elif time_horizon < 7:
+                allocation['stocks'] = max(20, allocation['stocks'] - 15)
+                allocation['bonds'] = min(70, allocation['bonds'] + 10)
+                allocation['cash'] = 100 - allocation['stocks'] - allocation['bonds']
+            elif time_horizon > 20:
+                allocation['stocks'] = min(95, allocation['stocks'] + 10)
+                allocation['bonds'] = max(5, allocation['bonds'] - 8)
+                allocation['cash'] = max(0, 100 - allocation['stocks'] - allocation['bonds'])
+            
+            # Blend with age-based allocation
+            allocation['stocks'] = int((allocation['stocks'] + age_adjusted_stock) / 2)
+            allocation['bonds'] = max(5, 95 - allocation['stocks'] - allocation['cash'])
+            
+            # Ensure allocations sum to 100%
+            total = sum(allocation.values())
+            if total != 100:
+                diff = 100 - total
+                allocation['bonds'] += diff
+            
+            # Calculate dollar amounts
+            dollar_allocation = {
+                asset: max(0, (percentage / 100) * capital) 
+                for asset, percentage in allocation.items()
+            }
+            
+            # Expected returns with market conditions
+            expected_returns = {
+                'stocks': 0.10,
+                'bonds': 0.04,
+                'cash': 0.02
+            }
+            
+            portfolio_return = sum(
+                (allocation[asset] / 100) * expected_returns[asset] 
+                for asset in allocation
+            )
+            
+            # Monte Carlo simulation (simplified)
+            projections = {}
+            for years in [5, 10, 20, 30]:
+                if years <= time_horizon:
+                    # Conservative, expected, and optimistic scenarios
+                    conservative = capital * ((1 + portfolio_return * 0.7) ** years)
+                    expected = capital * ((1 + portfolio_return) ** years)
+                    optimistic = capital * ((1 + portfolio_return * 1.3) ** years)
+                    
+                    projections[f'{years}_years'] = {
+                        'conservative': max(0, conservative),
+                        'expected': max(0, expected),
+                        'optimistic': max(0, optimistic)
+                    }
+            
+            return {
+                'allocation_percentages': allocation,
+                'allocation_dollars': dollar_allocation,
+                'expected_annual_return': max(0, portfolio_return),
+                'projections': projections,
+                'risk_level': risk_profile.title(),
+                'volatility_estimate': FinancialCalculator._calculate_portfolio_volatility(allocation)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in investment allocation calculation: {e}")
+            return {
+                'allocation_percentages': {'stocks': 60, 'bonds': 30, 'cash': 10},
+                'allocation_dollars': {'stocks': 0, 'bonds': 0, 'cash': 0},
+                'expected_annual_return': 0.07,
+                'projections': {},
+                'risk_level': 'Moderate',
+                'volatility_estimate': 0.12
+            }
     
     @staticmethod
     def _calculate_portfolio_volatility(allocation: Dict[str, int]) -> float:
         """Calculate estimated portfolio volatility"""
-        volatilities = {'stocks': 0.16, 'bonds': 0.05, 'cash': 0.01}
-        return sum((allocation[asset] / 100) * volatilities[asset] for asset in allocation)
+        try:
+            volatilities = {'stocks': 0.16, 'bonds': 0.05, 'cash': 0.01}
+            return max(0, sum((allocation.get(asset, 0) / 100) * volatilities[asset] for asset in volatilities))
+        except Exception:
+            return 0.12  # Default moderate volatility
     
     @staticmethod
     def calculate_debt_payoff(debts: List[Dict], extra_payment: float = 0, strategy: str = 'avalanche') -> Dict[str, Any]:
         """Calculate comprehensive debt payoff strategy with multiple scenarios - FIXED VERSION"""
-        if not debts:
-            return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0}
-        
-        # Validate and clean debt data
-        valid_debts = []
-        for debt in debts:
-            try:
-                balance = float(debt.get('balance', 0))
-                interest_rate = float(debt.get('interest_rate', 0))
-                minimum_payment = float(debt.get('minimum_payment', 0))
-                
-                # Skip debts with invalid data
-                if balance <= 0 or minimum_payment <= 0:
-                    continue
-                    
-                # Ensure minimum payment can actually pay off the debt
-                monthly_interest = balance * (interest_rate / 100 / 12)
-                if minimum_payment <= monthly_interest and interest_rate > 0:
-                    # Adjust minimum payment to be slightly higher than monthly interest
-                    minimum_payment = monthly_interest * 1.1 + 10
-                
-                valid_debts.append({
-                    'name': debt.get('name', 'Unknown Debt'),
-                    'balance': balance,
-                    'interest_rate': interest_rate,
-                    'minimum_payment': minimum_payment
-                })
-            except (ValueError, TypeError):
-                continue
-        
-        if not valid_debts:
-            return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0}
-        
-        total_debt = sum(debt['balance'] for debt in valid_debts)
-        total_minimum = sum(debt['minimum_payment'] for debt in valid_debts)
-        
-        # Sort debts based on strategy
-        if strategy == 'avalanche':
-            sorted_debts = sorted(valid_debts, key=lambda x: x['interest_rate'], reverse=True)
-        else:  # snowball
-            sorted_debts = sorted(valid_debts, key=lambda x: x['balance'])
-        
-        # Calculate payoff scenarios
-        scenarios = {}
-        for scenario_name, extra in [('minimum_only', 0), ('with_extra', extra_payment)]:
-            payoff_plan = []
-            total_interest = 0
-            cumulative_months = 0
+        try:
+            if not debts:
+                return {
+                    'total_debt': 0, 
+                    'total_minimum_payment': 0,
+                    'scenarios': {
+                        'minimum_only': {'payoff_plan': [], 'total_interest': 0, 'total_months': 0, 'total_payments': 0},
+                        'with_extra': {'payoff_plan': [], 'total_interest': 0, 'total_months': 0, 'total_payments': 0}
+                    },
+                    'strategy': strategy,
+                    'interest_savings': 0,
+                    'time_savings_months': 0,
+                    'recommended_extra_payment': 50
+                }
             
-            for i, debt in enumerate(sorted_debts):
-                monthly_payment = debt['minimum_payment']
-                if scenario_name == 'with_extra' and i == 0:  # Apply extra to first debt
-                    monthly_payment += extra
-                
-                balance = debt['balance']
-                rate = debt['interest_rate'] / 100 / 12
-                
+            # Validate and clean debt data
+            valid_debts = []
+            for debt in debts:
                 try:
-                    if rate > 0 and rate < 1:  # Valid interest rate
-                        # Amortization formula
-                        if monthly_payment > balance * rate:  # Payment covers interest
-                            months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
-                        else:
-                            # Payment doesn't cover interest - use simple calculation
-                            months = balance / (monthly_payment - balance * rate) if monthly_payment > balance * rate else 999
-                    else:
-                        # No interest or invalid rate
-                        months = balance / monthly_payment if monthly_payment > 0 else 999
+                    balance = FinancialCalculator.safe_float_conversion(debt.get('balance', 0))
+                    interest_rate = FinancialCalculator.safe_float_conversion(debt.get('interest_rate', 0))
+                    minimum_payment = FinancialCalculator.safe_float_conversion(debt.get('minimum_payment', 0))
                     
-                    # Validate and clean the months calculation
-                    if not np.isfinite(months) or months <= 0 or np.isnan(months):
-                        months = max(1, balance / monthly_payment) if monthly_payment > 0 else 999
+                    # Skip debts with invalid data
+                    if balance <= 0:
+                        continue
                     
-                    months = max(1, min(999, int(np.ceil(months))))  # Cap at reasonable maximum
+                    # Ensure minimum payment is reasonable
+                    if minimum_payment <= 0:
+                        minimum_payment = max(25, balance * 0.02)  # 2% of balance or $25 minimum
                     
-                except (ValueError, ZeroDivisionError, OverflowError):
-                    # Fallback calculation
-                    months = max(1, int(balance / monthly_payment)) if monthly_payment > 0 else 999
-                
-                interest_paid = max(0, (monthly_payment * months) - balance)
-                total_interest += interest_paid
-                cumulative_months = max(cumulative_months, months)
-                
-                payoff_plan.append({
-                    'debt_name': debt['name'],
-                    'balance': balance,
-                    'interest_rate': debt['interest_rate'],
-                    'monthly_payment': monthly_payment,
-                    'months_to_payoff': months,
-                    'interest_paid': interest_paid,
-                    'priority': i + 1
-                })
+                    # Ensure minimum payment can actually pay off the debt
+                    if interest_rate > 0:
+                        monthly_interest = balance * (interest_rate / 100 / 12)
+                        if minimum_payment <= monthly_interest:
+                            # Adjust minimum payment to be higher than monthly interest
+                            minimum_payment = monthly_interest * 1.5 + 10
+                    
+                    valid_debts.append({
+                        'name': str(debt.get('name', 'Unknown Debt')),
+                        'balance': balance,
+                        'interest_rate': max(0, interest_rate),
+                        'minimum_payment': minimum_payment
+                    })
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Skipping invalid debt entry: {e}")
+                    continue
             
-            scenarios[scenario_name] = {
-                'payoff_plan': payoff_plan,
-                'total_interest': total_interest,
-                'total_months': cumulative_months,
-                'total_payments': total_minimum + (extra if scenario_name == 'with_extra' else 0)
+            if not valid_debts:
+                return {
+                    'total_debt': 0, 
+                    'total_minimum_payment': 0,
+                    'scenarios': {
+                        'minimum_only': {'payoff_plan': [], 'total_interest': 0, 'total_months': 0, 'total_payments': 0},
+                        'with_extra': {'payoff_plan': [], 'total_interest': 0, 'total_months': 0, 'total_payments': 0}
+                    },
+                    'strategy': strategy,
+                    'interest_savings': 0,
+                    'time_savings_months': 0,
+                    'recommended_extra_payment': 50
+                }
+            
+            total_debt = sum(debt['balance'] for debt in valid_debts)
+            total_minimum = sum(debt['minimum_payment'] for debt in valid_debts)
+            extra_payment = max(0, FinancialCalculator.safe_float_conversion(extra_payment, 0))
+            
+            # Sort debts based on strategy
+            if strategy == 'avalanche':
+                sorted_debts = sorted(valid_debts, key=lambda x: x['interest_rate'], reverse=True)
+            else:  # snowball
+                sorted_debts = sorted(valid_debts, key=lambda x: x['balance'])
+            
+            # Calculate payoff scenarios
+            scenarios = {}
+            for scenario_name, extra in [('minimum_only', 0), ('with_extra', extra_payment)]:
+                payoff_plan = []
+                total_interest = 0
+                max_months = 0
+                
+                for i, debt in enumerate(sorted_debts):
+                    monthly_payment = debt['minimum_payment']
+                    if scenario_name == 'with_extra' and i == 0:  # Apply extra to first debt
+                        monthly_payment += extra
+                    
+                    balance = debt['balance']
+                    rate = debt['interest_rate'] / 100 / 12 if debt['interest_rate'] > 0 else 0
+                    
+                    try:
+                        if rate > 0 and rate < 1:  # Valid interest rate
+                            # Ensure payment covers interest
+                            if monthly_payment > balance * rate:
+                                # Amortization formula
+                                months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
+                            else:
+                                # Payment doesn't cover interest - use extended calculation
+                                months = balance / (monthly_payment - balance * rate) if monthly_payment > balance * rate else 999
+                        else:
+                            # No interest or invalid rate
+                            months = balance / monthly_payment if monthly_payment > 0 else 999
+                        
+                        # Validate and clean the months calculation
+                        if not np.isfinite(months) or months <= 0 or np.isnan(months):
+                            months = max(1, balance / monthly_payment) if monthly_payment > 0 else 999
+                        
+                        months = max(1, min(999, int(np.ceil(months))))  # Cap at reasonable maximum
+                        
+                    except (ValueError, ZeroDivisionError, OverflowError):
+                        # Fallback calculation
+                        months = max(1, int(balance / monthly_payment)) if monthly_payment > 0 else 999
+                    
+                    # Calculate interest paid
+                    total_payments = monthly_payment * months
+                    interest_paid = max(0, total_payments - balance)
+                    total_interest += interest_paid
+                    max_months = max(max_months, months)
+                    
+                    payoff_plan.append({
+                        'debt_name': debt['name'],
+                        'balance': balance,
+                        'interest_rate': debt['interest_rate'],
+                        'monthly_payment': monthly_payment,
+                        'months_to_payoff': months,
+                        'interest_paid': interest_paid,
+                        'priority': i + 1
+                    })
+                
+                scenarios[scenario_name] = {
+                    'payoff_plan': payoff_plan,
+                    'total_interest': total_interest,
+                    'total_months': max_months,
+                    'total_payments': total_minimum + (extra if scenario_name == 'with_extra' else 0)
+                }
+            
+            # Calculate savings from extra payments
+            interest_savings = max(0, scenarios['minimum_only']['total_interest'] - scenarios['with_extra']['total_interest'])
+            time_savings = max(0, scenarios['minimum_only']['total_months'] - scenarios['with_extra']['total_months'])
+            
+            return {
+                'total_debt': total_debt,
+                'total_minimum_payment': total_minimum,
+                'scenarios': scenarios,
+                'strategy': strategy,
+                'interest_savings': interest_savings,
+                'time_savings_months': time_savings,
+                'recommended_extra_payment': max(50, total_debt * 0.02)  # 2% of total debt or $50
             }
-        
-        # Calculate savings from extra payments
-        interest_savings = max(0, scenarios['minimum_only']['total_interest'] - scenarios['with_extra']['total_interest'])
-        time_savings = max(0, scenarios['minimum_only']['total_months'] - scenarios['with_extra']['total_months'])
-        
-        return {
-            'total_debt': total_debt,
-            'total_minimum_payment': total_minimum,
-            'scenarios': scenarios,
-            'strategy': strategy,
-            'interest_savings': interest_savings,
-            'time_savings_months': time_savings,
-            'recommended_extra_payment': max(50, total_debt * 0.02)  # 2% of total debt or $50
-        }
+            
+        except Exception as e:
+            logger.error(f"Error in debt payoff calculation: {e}")
+            return {
+                'total_debt': 0, 
+                'total_minimum_payment': 0,
+                'scenarios': {
+                    'minimum_only': {'payoff_plan': [], 'total_interest': 0, 'total_months': 0, 'total_payments': 0},
+                    'with_extra': {'payoff_plan': [], 'total_interest': 0, 'total_months': 0, 'total_payments': 0}
+                },
+                'strategy': strategy,
+                'interest_savings': 0,
+                'time_savings_months': 0,
+                'recommended_extra_payment': 50
+            }
     
     @staticmethod
     def calculate_retirement_needs(current_age: int, retirement_age: int, current_income: float, 
                                  current_savings: float, monthly_contribution: float) -> Dict[str, Any]:
         """Calculate comprehensive retirement planning with multiple scenarios"""
-        years_to_retirement = max(1, retirement_age - current_age)
-        annual_contribution = monthly_contribution * 12
-        
-        # Assumptions
-        inflation_rate = 0.03
-        investment_return = 0.07
-        replacement_ratio = 0.80  # 80% of current income needed
-        life_expectancy = 85
-        retirement_years = max(1, life_expectancy - retirement_age)
-        
-        # Calculate future income needed (adjusted for inflation)
-        future_income_needed = current_income * ((1 + inflation_rate) ** years_to_retirement)
-        annual_retirement_need = future_income_needed * replacement_ratio
-        
-        # Calculate total retirement corpus needed
-        # Using present value of annuity formula for retirement years
-        real_return = investment_return - inflation_rate
-        if real_return > 0:
-            retirement_corpus_needed = annual_retirement_need * (
-                (1 - (1 + real_return) ** -retirement_years) / real_return
-            )
-        else:
-            retirement_corpus_needed = annual_retirement_need * retirement_years
-        
-        # Future value of current savings
-        future_current_savings = current_savings * ((1 + investment_return) ** years_to_retirement)
-        
-        # Future value of contributions
-        if investment_return > 0:
-            future_contributions = annual_contribution * (
-                ((1 + investment_return) ** years_to_retirement - 1) / investment_return
-            )
-        else:
-            future_contributions = annual_contribution * years_to_retirement
-        
-        total_projected_savings = future_current_savings + future_contributions
-        
-        # Gap analysis
-        retirement_gap = retirement_corpus_needed - total_projected_savings
-        
-        # Calculate required monthly contribution to meet goal
-        if retirement_gap > 0 and years_to_retirement > 0:
-            if investment_return > 0:
-                required_annual_contribution = retirement_gap / (
+        try:
+            # Input validation
+            current_age = max(18, min(100, int(current_age)))
+            retirement_age = max(current_age + 1, min(100, int(retirement_age)))
+            current_income = max(0, FinancialCalculator.safe_float_conversion(current_income, 0))
+            current_savings = max(0, FinancialCalculator.safe_float_conversion(current_savings, 0))
+            monthly_contribution = max(0, FinancialCalculator.safe_float_conversion(monthly_contribution, 0))
+            
+            years_to_retirement = max(1, retirement_age - current_age)
+            annual_contribution = monthly_contribution * 12
+            
+            # Assumptions
+            inflation_rate = 0.03
+            investment_return = 0.07
+            replacement_ratio = 0.80  # 80% of current income needed
+            life_expectancy = 85
+            retirement_years = max(1, life_expectancy - retirement_age)
+            
+            # Calculate future income needed (adjusted for inflation)
+            future_income_needed = current_income * ((1 + inflation_rate) ** years_to_retirement) if current_income > 0 else 0
+            annual_retirement_need = future_income_needed * replacement_ratio
+            
+            # Calculate total retirement corpus needed
+            real_return = max(0.001, investment_return - inflation_rate)  # Prevent division by zero
+            if real_return > 0 and annual_retirement_need > 0:
+                retirement_corpus_needed = annual_retirement_need * (
+                    (1 - (1 + real_return) ** -retirement_years) / real_return
+                )
+            else:
+                retirement_corpus_needed = annual_retirement_need * retirement_years
+            
+            # Future value of current savings
+            future_current_savings = current_savings * ((1 + investment_return) ** years_to_retirement)
+            
+            # Future value of contributions
+            if investment_return > 0 and annual_contribution > 0:
+                future_contributions = annual_contribution * (
                     ((1 + investment_return) ** years_to_retirement - 1) / investment_return
                 )
             else:
-                required_annual_contribution = retirement_gap / years_to_retirement
+                future_contributions = annual_contribution * years_to_retirement
             
-            required_monthly_contribution = required_annual_contribution / 12
-        else:
-            required_monthly_contribution = 0
-        
-        # Scenarios
-        scenarios = {}
-        for contribution_multiplier, scenario_name in [(0.5, 'conservative'), (1.0, 'current'), (1.5, 'aggressive')]:
-            scenario_monthly = monthly_contribution * contribution_multiplier
-            scenario_annual = scenario_monthly * 12
+            total_projected_savings = future_current_savings + future_contributions
             
-            if investment_return > 0:
-                scenario_future_contributions = scenario_annual * (
-                    ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+            # Gap analysis
+            retirement_gap = max(0, retirement_corpus_needed - total_projected_savings)
+            
+            # Calculate required monthly contribution to meet goal
+            if retirement_gap > 0 and years_to_retirement > 0:
+                if investment_return > 0:
+                    required_annual_contribution = retirement_gap / (
+                        ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+                    )
+                else:
+                    required_annual_contribution = retirement_gap / years_to_retirement
+                
+                required_monthly_contribution = required_annual_contribution / 12
+            else:
+                required_monthly_contribution = 0
+            
+            # Scenarios
+            scenarios = {}
+            for contribution_multiplier, scenario_name in [(0.5, 'conservative'), (1.0, 'current'), (1.5, 'aggressive')]:
+                scenario_monthly = monthly_contribution * contribution_multiplier
+                scenario_annual = scenario_monthly * 12
+                
+                if investment_return > 0 and scenario_annual > 0:
+                    scenario_future_contributions = scenario_annual * (
+                        ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+                    )
+                else:
+                    scenario_future_contributions = scenario_annual * years_to_retirement
+                
+                scenario_total = future_current_savings + scenario_future_contributions
+                
+                # Calculate monthly retirement income
+                if real_return > 0 and scenario_total > 0:
+                    monthly_retirement_income = (scenario_total * real_return) / 12
+                else:
+                    monthly_retirement_income = scenario_total / (retirement_years * 12) if retirement_years > 0 else 0
+                
+                replacement_ratio_achieved = (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0
+                
+                scenarios[scenario_name] = {
+                    'monthly_contribution': scenario_monthly,
+                    'projected_total': max(0, scenario_total),
+                    'monthly_retirement_income': max(0, monthly_retirement_income),
+                    'replacement_ratio_achieved': max(0, min(2, replacement_ratio_achieved))  # Cap at 200%
+                }
+            
+            return {
+                'current_age': current_age,
+                'retirement_age': retirement_age,
+                'years_to_retirement': years_to_retirement,
+                'current_savings': current_savings,
+                'monthly_contribution': monthly_contribution,
+                'retirement_corpus_needed': max(0, retirement_corpus_needed),
+                'projected_savings': max(0, total_projected_savings),
+                'retirement_gap': retirement_gap,
+                'required_monthly_contribution': max(0, required_monthly_contribution),
+                'scenarios': scenarios,
+                'recommendations': FinancialCalculator._get_retirement_recommendations(
+                    retirement_gap, years_to_retirement, monthly_contribution, required_monthly_contribution
                 )
-            else:
-                scenario_future_contributions = scenario_annual * years_to_retirement
-            
-            scenario_total = future_current_savings + scenario_future_contributions
-            
-            # Calculate monthly retirement income
-            if real_return > 0:
-                monthly_retirement_income = (scenario_total * real_return) / 12
-            else:
-                monthly_retirement_income = scenario_total / (retirement_years * 12)
-            
-            replacement_ratio_achieved = (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0
-            
-            scenarios[scenario_name] = {
-                'monthly_contribution': scenario_monthly,
-                'projected_total': scenario_total,
-                'monthly_retirement_income': monthly_retirement_income,
-                'replacement_ratio_achieved': replacement_ratio_achieved
             }
-        
-        return {
-            'current_age': current_age,
-            'retirement_age': retirement_age,
-            'years_to_retirement': years_to_retirement,
-            'current_savings': current_savings,
-            'monthly_contribution': monthly_contribution,
-            'retirement_corpus_needed': retirement_corpus_needed,
-            'projected_savings': total_projected_savings,
-            'retirement_gap': retirement_gap,
-            'required_monthly_contribution': required_monthly_contribution,
-            'scenarios': scenarios,
-            'recommendations': FinancialCalculator._get_retirement_recommendations(
-                retirement_gap, years_to_retirement, monthly_contribution, required_monthly_contribution
-            )
-        }
+            
+        except Exception as e:
+            logger.error(f"Error in retirement calculation: {e}")
+            return {
+                'current_age': 35,
+                'retirement_age': 65,
+                'years_to_retirement': 30,
+                'current_savings': 0,
+                'monthly_contribution': 0,
+                'retirement_corpus_needed': 0,
+                'projected_savings': 0,
+                'retirement_gap': 0,
+                'required_monthly_contribution': 0,
+                'scenarios': {
+                    'conservative': {'monthly_contribution': 0, 'projected_total': 0, 'monthly_retirement_income': 0, 'replacement_ratio_achieved': 0},
+                    'current': {'monthly_contribution': 0, 'projected_total': 0, 'monthly_retirement_income': 0, 'replacement_ratio_achieved': 0},
+                    'aggressive': {'monthly_contribution': 0, 'projected_total': 0, 'monthly_retirement_income': 0, 'replacement_ratio_achieved': 0}
+                },
+                'recommendations': ['Unable to calculate retirement needs. Please check your inputs.']
+            }
     
     @staticmethod
     def _get_retirement_recommendations(gap: float, years_left: int, current_contrib: float, required_contrib: float) -> List[str]:
         """Generate retirement planning recommendations"""
         recommendations = []
         
-        if gap > 0:
-            increase_needed = max(0, required_contrib - current_contrib)
-            recommendations.append(f"💰 Increase monthly contributions by ${increase_needed:.0f}")
+        try:
+            if gap > 0:
+                increase_needed = max(0, required_contrib - current_contrib)
+                recommendations.append(f"💰 Increase monthly contributions by ${increase_needed:.0f}")
+                
+            if years_left > 30:
+                recommendations.append("📈 Consider more aggressive investments for long-term growth")
+            elif years_left < 10:
+                recommendations.append("🛡️ Consider shifting to more conservative investments")
+                
+            if current_contrib < 500:
+                recommendations.append("🎯 Aim to contribute at least $500/month for retirement")
+                
+            recommendations.append("🏢 Maximize employer 401(k) matching if available")
+            recommendations.append("💡 Consider Roth IRA for tax-free retirement income")
             
-        if years_left > 30:
-            recommendations.append("📈 Consider more aggressive investments for long-term growth")
-        elif years_left < 10:
-            recommendations.append("🛡️ Consider shifting to more conservative investments")
+        except Exception as e:
+            logger.error(f"Error generating retirement recommendations: {e}")
+            recommendations = ["💡 Review your retirement plan regularly and consider professional advice"]
             
-        if current_contrib < 500:
-            recommendations.append("🎯 Aim to contribute at least $500/month for retirement")
-            
-        recommendations.append("🏢 Maximize employer 401(k) matching if available")
-        recommendations.append("💡 Consider Roth IRA for tax-free retirement income")
-        
         return recommendations
 
 class FinancialVisualizer:
     """Advanced visualization functions for financial data"""
     
     @staticmethod
+    def safe_plot_creation(plot_function, *args, **kwargs):
+        """Safely create plots with error handling"""
+        try:
+            return plot_function(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error creating plot: {e}")
+            fig = go.Figure()
+            fig.add_annotation(
+                text=f"Unable to create visualization: {str(e)[:100]}...",
+                x=0.5, y=0.5, showarrow=False,
+                font=dict(size=16, color="red")
+            )
+            fig.update_layout(
+                title="Visualization Error",
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False)
+            )
+            return fig
+    
+    @staticmethod
     def plot_expense_breakdown(expenses: Dict[str, float], title: str = "Expense Breakdown") -> go.Figure:
         """Create an interactive pie chart for expense breakdown"""
-        # Filter out zero expenses
-        filtered_expenses = {k: v for k, v in expenses.items() if v > 0}
-        
-        if not filtered_expenses:
-            fig = go.Figure()
-            fig.add_annotation(text="No expense data available", x=0.5, y=0.5, showarrow=False)
+        try:
+            # Filter out zero expenses and validate data
+            filtered_expenses = {}
+            for k, v in expenses.items():
+                clean_value = FinancialCalculator.safe_float_conversion(v, 0)
+                if clean_value > 0:
+                    filtered_expenses[str(k)] = clean_value
+            
+            if not filtered_expenses:
+                fig = go.Figure()
+                fig.add_annotation(text="No expense data available", x=0.5, y=0.5, showarrow=False)
+                fig.update_layout(title=title)
+                return fig
+            
+            fig = px.pie(
+                values=list(filtered_expenses.values()),
+                names=list(filtered_expenses.keys()),
+                title=title,
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            
+            fig.update_traces(
+                textposition='inside',
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>Amount: $%{value:,.0f}<br>Percentage: %{percent}<extra></extra>'
+            )
+            
+            fig.update_layout(
+                showlegend=True,
+                height=500,
+                font=dict(size=12)
+            )
+            
             return fig
-        
-        fig = px.pie(
-            values=list(filtered_expenses.values()),
-            names=list(filtered_expenses.keys()),
-            title=title,
-            color_discrete_sequence=px.colors.qualitative.Set3
-        )
-        
-        fig.update_traces(
-            textposition='inside',
-            textinfo='percent+label',
-            hovertemplate='<b>%{label}</b><br>Amount: $%{value:,.0f}<br>Percentage: %{percent}<extra></extra>'
-        )
-        
-        fig.update_layout(
-            showlegend=True,
-            height=500,
-            font=dict(size=12)
-        )
-        
-        return fig
+            
+        except Exception as e:
+            return FinancialVisualizer.safe_plot_creation(lambda: go.Figure(), e)
     
     @staticmethod
     def plot_budget_summary(budget_data: Dict[str, Any]) -> go.Figure:
         """Create a comprehensive budget visualization"""
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'Financial Health'),
-            specs=[[{"type": "bar"}, {"type": "indicator"}],
-                   [{"type": "pie"}, {"type": "indicator"}]]
-        )
-        
-        # Income vs Expenses bar chart
-        fig.add_trace(
-            go.Bar(
-                x=['Income', 'Expenses', 'Savings'],
-                y=[budget_data['total_income'], budget_data['total_expenses'], budget_data['savings']],
-                marker_color=['#2ecc71', '#e74c3c', '#3498db'],
-                name='Amount'
-            ),
-            row=1, col=1
-        )
-        
-        # Savings rate gauge
-        fig.add_trace(
-            go.Indicator(
-                mode="gauge+number+delta",
-                value=budget_data['savings_rate'],
-                domain={'x': [0, 1], 'y': [0, 1]},
-                title={'text': "Savings Rate (%)"},
-                gauge={
-                    'axis': {'range': [None, 30]},
-                    'bar': {'color': budget_data['health_color']},
-                    'steps': [
-                        {'range': [0, 10], 'color': "lightgray"},
-                        {'range': [10, 20], 'color': "gray"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 20
-                    }
-                }
-            ),
-            row=1, col=2
-        )
-        
-        # Expense breakdown pie
-        filtered_expenses = {k: v for k, v in budget_data['expense_breakdown'].items() if v > 0}
-        if filtered_expenses:
-            fig.add_trace(
-                go.Pie(
-                    labels=list(filtered_expenses.keys()),
-                    values=list(filtered_expenses.values()),
-                    name="Expenses"
-                ),
-                row=2, col=1
+        try:
+            fig = make_subplots(
+                rows=2, cols=2,
+                subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'Financial Health'),
+                specs=[[{"type": "bar"}, {"type": "indicator"}],
+                       [{"type": "pie"}, {"type": "indicator"}]]
             )
-        
-        # Financial health indicator
-        health_score = {'Excellent': 100, 'Good': 75, 'Fair': 50, 'Critical': 25}
-        fig.add_trace(
-            go.Indicator(
-                mode="gauge+number",
-                value=health_score.get(budget_data['financial_health'], 50),
-                title={'text': "Financial Health"},
-                gauge={
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': budget_data['health_color']},
-                    'steps': [
-                        {'range': [0, 25], 'color': "#ffebee"},
-                        {'range': [25, 50], 'color': "#fff3e0"},
-                        {'range': [50, 75], 'color': "#f3e5f5"},
-                        {'range': [75, 100], 'color': "#e8f5e8"}
-                    ]
-                }
-            ),
-            row=2, col=2
-        )
-        
-        fig.update_layout(height=800, showlegend=False, title_text="Budget Analysis Dashboard")
-        return fig
+            
+            # Income vs Expenses bar chart
+            income = FinancialCalculator.safe_float_conversion(budget_data.get('total_income', 0))
+            expenses = FinancialCalculator.safe_float_conversion(budget_data.get('total_expenses', 0))
+            savings = FinancialCalculator.safe_float_conversion(budget_data.get('savings', 0))
+            
+            fig.add_trace(
+                go.Bar(
+                    x=['Income', 'Expenses', 'Savings'],
+                    y=[income, expenses, savings],
+                    marker_color=['#2ecc71', '#e74c3c', '#3498db'],
+                    name='Amount'
+                ),
+                row=1, col=1
+            )
+            
+            # Savings rate gauge
+            savings_rate = max(-100, min(100, FinancialCalculator.safe_float_conversion(budget_data.get('savings_rate', 0))))
+            health_color = budget_data.get('health_color', '#gray')
+            
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number+delta",
+                    value=savings_rate,
+                    domain={'x': [0, 1], 'y': [0, 1]},
+                    title={'text': "Savings Rate (%)"},
+                    gauge={
+                        'axis': {'range': [-50, 50]},
+                        'bar': {'color': health_color},
+                        'steps': [
+                            {'range': [-50, 0], 'color': "lightcoral"},
+                            {'range': [0, 10], 'color': "lightgray"},
+                            {'range': [10, 20], 'color': "lightgreen"}
+                        ],
+                        'threshold': {
+                            'line': {'color': "red", 'width': 4},
+                            'thickness': 0.75,
+                            'value': 20
+                        }
+                    }
+                ),
+                row=1, col=2
+            )
+            
+            # Expense breakdown pie
+            expense_breakdown = budget_data.get('expense_breakdown', {})
+            filtered_expenses = {k: v for k, v in expense_breakdown.items() if FinancialCalculator.safe_float_conversion(v, 0) > 0}
+            
+            if filtered_expenses:
+                fig.add_trace(
+                    go.Pie(
+                        labels=list(filtered_expenses.keys()),
+                        values=list(filtered_expenses.values()),
+                        name="Expenses"
+                    ),
+                    row=2, col=1
+                )
+            
+            # Financial health indicator
+            health_score_map = {'Excellent': 100, 'Good': 75, 'Fair': 50, 'Critical': 25}
+            health_score = health_score_map.get(budget_data.get('financial_health', 'Fair'), 50)
+            
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=health_score,
+                    title={'text': "Financial Health"},
+                    gauge={
+                        'axis': {'range': [None, 100]},
+                        'bar': {'color': health_color},
+                        'steps': [
+                            {'range': [0, 25], 'color': "#ffebee"},
+                            {'range': [25, 50], 'color': "#fff3e0"},
+                            {'range': [50, 75], 'color': "#f3e5f5"},
+                            {'range': [75, 100], 'color': "#e8f5e8"}
+                        ]
+                    }
+                ),
+                row=2, col=2
+            )
+            
+            fig.update_layout(height=800, showlegend=False, title_text="Budget Analysis Dashboard")
+            return fig
+            
+        except Exception as e:
+            return FinancialVisualizer.safe_plot_creation(lambda: go.Figure(), e)
     
     @staticmethod
     def plot_investment_allocation(allocation_data: Dict[str, Any]) -> go.Figure:
         """Create investment allocation visualization with projections"""
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'Dollar Allocation'),
-            specs=[[{"type": "pie"}, {"type": "scatter"}],
-                   [{"type": "scatter"}, {"type": "bar"}]]
-        )
-        
-        # Asset allocation pie chart
-        allocation = allocation_data['allocation_percentages']
-        fig.add_trace(
-            go.Pie(
-                labels=list(allocation.keys()),
-                values=list(allocation.values()),
-                name="Allocation",
-                marker_colors=['#1f77b4', '#ff7f0e', '#2ca02c']
-            ),
-            row=1, col=1
-        )
-        
-        # Portfolio projections
-        projections = allocation_data.get('projections', {})
-        years = []
-        conservative_vals = []
-        expected_vals = []
-        optimistic_vals = []
-        
-        for year_key, scenarios in projections.items():
-            year = int(year_key.split('_')[0])
-            years.append(year)
-            conservative_vals.append(scenarios['conservative'])
-            expected_vals.append(scenarios['expected'])
-            optimistic_vals.append(scenarios['optimistic'])
-        
-        if years:
-            fig.add_trace(go.Scatter(x=years, y=conservative_vals, name='Conservative', line=dict(color='red')), row=1, col=2)
-            fig.add_trace(go.Scatter(x=years, y=expected_vals, name='Expected', line=dict(color='blue')), row=1, col=2)
-            fig.add_trace(go.Scatter(x=years, y=optimistic_vals, name='Optimistic', line=dict(color='green')), row=1, col=2)
-        
-        # Risk vs Return scatter
-        risk_return_data = {
-            'Conservative': (0.08, 0.06),
-            'Moderate': (0.12, 0.08),
-            'Aggressive': (0.18, 0.10)
-        }
-        
-        for profile, (risk, return_val) in risk_return_data.items():
-            color = 'red' if profile == allocation_data['risk_level'].title() else 'lightblue'
-            fig.add_trace(
-                go.Scatter(
-                    x=[risk], y=[return_val], 
-                    mode='markers+text',
-                    text=[profile],
-                    textposition="top center",
-                    marker=dict(size=15, color=color),
-                    name=profile
-                ),
-                row=2, col=1
+        try:
+            fig = make_subplots(
+                rows=2, cols=2,
+                subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'Dollar Allocation'),
+                specs=[[{"type": "pie"}, {"type": "scatter"}],
+                       [{"type": "scatter"}, {"type": "bar"}]]
             )
-        
-        # Dollar allocation bar chart
-        dollar_allocation = allocation_data['allocation_dollars']
-        fig.add_trace(
-            go.Bar(
-                x=list(dollar_allocation.keys()),
-                y=list(dollar_allocation.values()),
-                marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'],
-                name='Dollar Amount'
-            ),
-            row=2, col=2
-        )
-        
-        fig.update_layout(height=800, showlegend=True, title_text="Investment Portfolio Analysis")
-        return fig
+            
+            # Asset allocation pie chart
+            allocation = allocation_data.get('allocation_percentages', {})
+            if allocation:
+                fig.add_trace(
+                    go.Pie(
+                        labels=list(allocation.keys()),
+                        values=list(allocation.values()),
+                        name="Allocation",
+                        marker_colors=['#1f77b4', '#ff7f0e', '#2ca02c']
+                    ),
+                    row=1, col=1
+                )
+            
+            # Portfolio projections
+            projections = allocation_data.get('projections', {})
+            if projections:
+                years = []
+                conservative_vals = []
+                expected_vals = []
+                optimistic_vals = []
+                
+                for year_key, scenarios in projections.items():
+                    try:
+                        year = int(year_key.split('_')[0])
+                        years.append(year)
+                        conservative_vals.append(max(0, scenarios.get('conservative', 0)))
+                        expected_vals.append(max(0, scenarios.get('expected', 0)))
+                        optimistic_vals.append(max(0, scenarios.get('optimistic', 0)))
+                    except (ValueError, KeyError):
+                        continue
+                
+                if years:
+                    fig.add_trace(go.Scatter(x=years, y=conservative_vals, name='Conservative', line=dict(color='red')), row=1, col=2)
+                    fig.add_trace(go.Scatter(x=years, y=expected_vals, name='Expected', line=dict(color='blue')), row=1, col=2)
+                    fig.add_trace(go.Scatter(x=years, y=optimistic_vals, name='Optimistic', line=dict(color='green')), row=1, col=2)
+            
+            # Risk vs Return scatter
+            risk_return_data = {
+                'Conservative': (0.08, 0.06),
+                'Moderate': (0.12, 0.08),
+                'Aggressive': (0.18, 0.10)
+            }
+            
+            current_risk_level = allocation_data.get('risk_level', 'Moderate')
+            for profile, (risk, return_val) in risk_return_data.items():
+                color = 'red' if profile == current_risk_level else 'lightblue'
+                fig.add_trace(
+                    go.Scatter(
+                        x=[risk], y=[return_val], 
+                        mode='markers+text',
+                        text=[profile],
+                        textposition="top center",
+                        marker=dict(size=15, color=color),
+                        name=profile
+                    ),
+                    row=2, col=1
+                )
+            
+            # Dollar allocation bar chart
+            dollar_allocation = allocation_data.get('allocation_dollars', {})
+            if dollar_allocation:
+                fig.add_trace(
+                    go.Bar(
+                        x=list(dollar_allocation.keys()),
+                        y=[max(0, v) for v in dollar_allocation.values()],
+                        marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'],
+                        name='Dollar Amount'
+                    ),
+                    row=2, col=2
+                )
+            
+            fig.update_layout(height=800, showlegend=True, title_text="Investment Portfolio Analysis")
+            return fig
+            
+        except Exception as e:
+            return FinancialVisualizer.safe_plot_creation(lambda: go.Figure(), e)
     
     @staticmethod
     def plot_debt_payoff(debt_data: Dict[str, Any]) -> go.Figure:
         """Create debt payoff visualization"""
-        scenarios = debt_data.get('scenarios', {})
-        
-        if not scenarios:
-            fig = go.Figure()
-            fig.add_annotation(text="No debt data available", x=0.5, y=0.5, showarrow=False)
+        try:
+            scenarios = debt_data.get('scenarios', {})
+            
+            if not scenarios:
+                fig = go.Figure()
+                fig.add_annotation(text="No debt data available", x=0.5, y=0.5, showarrow=False)
+                return fig
+            
+            fig = make_subplots(
+                rows=2, cols=2,
+                subplot_titles=('Debt Balances', 'Payoff Timeline', 'Interest Comparison', 'Monthly Payments'),
+                specs=[[{"type": "bar"}, {"type": "bar"}],
+                       [{"type": "bar"}, {"type": "bar"}]]
+            )
+            
+            # Get debt data from minimum scenario
+            debts = scenarios.get('minimum_only', {}).get('payoff_plan', [])
+            
+            if debts:
+                debt_names = [str(debt.get('debt_name', 'Unknown')) for debt in debts]
+                balances = [max(0, FinancialCalculator.safe_float_conversion(debt.get('balance', 0))) for debt in debts]
+                months = [max(0, FinancialCalculator.safe_float_conversion(debt.get('months_to_payoff', 0))) for debt in debts]
+                interest_rates = [max(0, FinancialCalculator.safe_float_conversion(debt.get('interest_rate', 0))) for debt in debts]
+                payments = [max(0, FinancialCalculator.safe_float_conversion(debt.get('monthly_payment', 0))) for debt in debts]
+                
+                # Debt balances
+                fig.add_trace(
+                    go.Bar(x=debt_names, y=balances, name='Balance', marker_color='red'),
+                    row=1, col=1
+                )
+                
+                # Payoff timeline
+                fig.add_trace(
+                    go.Bar(x=debt_names, y=months, name='Months to Payoff', marker_color='blue'),
+                    row=1, col=2
+                )
+                
+                # Interest rates
+                fig.add_trace(
+                    go.Bar(x=debt_names, y=interest_rates, name='Interest Rate (%)', marker_color='orange'),
+                    row=2, col=1
+                )
+                
+                # Monthly payments
+                fig.add_trace(
+                    go.Bar(x=debt_names, y=payments, name='Monthly Payment', marker_color='green'),
+                    row=2, col=2
+                )
+            
+            fig.update_layout(height=800, showlegend=False, title_text="Debt Payoff Analysis")
             return fig
-        
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Debt Balances', 'Payoff Timeline', 'Interest Comparison', 'Monthly Payments'),
-            specs=[[{"type": "bar"}, {"type": "bar"}],
-                   [{"type": "bar"}, {"type": "bar"}]]
-        )
-        
-        # Get debt data from minimum scenario
-        debts = scenarios.get('minimum_only', {}).get('payoff_plan', [])
-        
-        if debts:
-            debt_names = [debt['debt_name'] for debt in debts]
-            balances = [debt['balance'] for debt in debts]
-            months = [debt['months_to_payoff'] for debt in debts]
-            interest_rates = [debt['interest_rate'] for debt in debts]
-            payments = [debt['monthly_payment'] for debt in debts]
             
-            # Debt balances
-            fig.add_trace(
-                go.Bar(x=debt_names, y=balances, name='Balance', marker_color='red'),
-                row=1, col=1
-            )
-            
-            # Payoff timeline
-            fig.add_trace(
-                go.Bar(x=debt_names, y=months, name='Months to Payoff', marker_color='blue'),
-                row=1, col=2
-            )
-            
-            # Interest rates
-            fig.add_trace(
-                go.Bar(x=debt_names, y=interest_rates, name='Interest Rate (%)', marker_color='orange'),
-                row=2, col=1
-            )
-            
-            # Monthly payments
-            fig.add_trace(
-                go.Bar(x=debt_names, y=payments, name='Monthly Payment', marker_color='green'),
-                row=2, col=2
-            )
-        
-        fig.update_layout(height=800, showlegend=False, title_text="Debt Payoff Analysis")
-        return fig
+        except Exception as e:
+            return FinancialVisualizer.safe_plot_creation(lambda: go.Figure(), e)
     
     @staticmethod
     def plot_retirement_projections(retirement_data: Dict[str, Any]) -> go.Figure:
         """Create retirement planning visualization"""
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'Income Replacement'),
-            specs=[[{"type": "bar"}, {"type": "scatter"}],
-                   [{"type": "scatter"}, {"type": "indicator"}]]
-        )
-        
-        scenarios = retirement_data.get('scenarios', {})
-        
-        # Retirement scenarios comparison
-        scenario_names = list(scenarios.keys())
-        projected_totals = [scenarios[name]['projected_total'] for name in scenario_names]
-        monthly_contributions = [scenarios[name]['monthly_contribution'] for name in scenario_names]
-        
-        fig.add_trace(
-            go.Bar(
-                x=scenario_names,
-                y=projected_totals,
-                name='Projected Total',
-                marker_color=['#ff7f0e', '#1f77b4', '#2ca02c']
-            ),
-            row=1, col=1
-        )
-        
-        # Contribution impact
-        fig.add_trace(
-            go.Scatter(
-                x=monthly_contributions,
-                y=projected_totals,
-                mode='markers+lines',
-                name='Contribution vs Total',
-                marker=dict(size=10)
-            ),
-            row=1, col=2
-        )
-        
-        # Savings growth over time (simplified projection)
-        years_to_retirement = retirement_data['years_to_retirement']
-        current_savings = retirement_data['current_savings']
-        monthly_contribution = retirement_data['monthly_contribution']
-        
-        years = list(range(0, years_to_retirement + 1, 5))
-        growth_values = []
-        
-        for year in years:
-            future_current = current_savings * ((1.07) ** year)
-            future_contributions = monthly_contribution * 12 * year * ((1.07) ** (year/2)) if year > 0 else 0
-            growth_values.append(future_current + future_contributions)
-        
-        fig.add_trace(
-            go.Scatter(
-                x=years,
-                y=growth_values,
-                mode='lines+markers',
-                name='Projected Growth',
-                line=dict(color='green', width=3)
-            ),
-            row=2, col=1
-        )
-        
-        # Income replacement gauge
-        current_replacement = scenarios.get('current', {}).get('replacement_ratio_achieved', 0) * 100
-        fig.add_trace(
-            go.Indicator(
-                mode="gauge+number",
-                value=current_replacement,
-                title={'text': "Income Replacement (%)"},
-                gauge={
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, 50], 'color': "lightgray"},
-                        {'range': [50, 80], 'color': "gray"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 80
+        try:
+            fig = make_subplots(
+                rows=2, cols=2,
+                subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'Income Replacement'),
+                specs=[[{"type": "bar"}, {"type": "scatter"}],
+                       [{"type": "scatter"}, {"type": "indicator"}]]
+            )
+            
+            scenarios = retirement_data.get('scenarios', {})
+            
+            if scenarios:
+                # Retirement scenarios comparison
+                scenario_names = list(scenarios.keys())
+                projected_totals = [max(0, scenarios[name].get('projected_total', 0)) for name in scenario_names]
+                monthly_contributions = [max(0, scenarios[name].get('monthly_contribution', 0)) for name in scenario_names]
+                
+                fig.add_trace(
+                    go.Bar(
+                        x=scenario_names,
+                        y=projected_totals,
+                        name='Projected Total',
+                        marker_color=['#ff7f0e', '#1f77b4', '#2ca02c']
+                    ),
+                    row=1, col=1
+                )
+                
+                # Contribution impact
+                fig.add_trace(
+                    go.Scatter(
+                        x=monthly_contributions,
+                        y=projected_totals,
+                        mode='markers+lines',
+                        name='Contribution vs Total',
+                        marker=dict(size=10)
+                    ),
+                    row=1, col=2
+                )
+            
+            # Savings growth over time (simplified projection)
+            years_to_retirement = max(1, retirement_data.get('years_to_retirement', 30))
+            current_savings = max(0, retirement_data.get('current_savings', 0))
+            monthly_contribution = max(0, retirement_data.get('monthly_contribution', 0))
+            
+            years = list(range(0, min(years_to_retirement + 1, 41), 5))  # Cap at 40 years
+            growth_values = []
+            
+            for year in years:
+                try:
+                    future_current = current_savings * ((1.07) ** year)
+                    future_contributions = monthly_contribution * 12 * year * ((1.07) ** (year/2)) if year > 0 else 0
+                    growth_values.append(max(0, future_current + future_contributions))
+                except (OverflowError, ValueError):
+                    growth_values.append(0)
+            
+            if years and growth_values:
+                fig.add_trace(
+                    go.Scatter(
+                        x=years,
+                        y=growth_values,
+                        mode='lines+markers',
+                        name='Projected Growth',
+                        line=dict(color='green', width=3)
+                    ),
+                    row=2, col=1
+                )
+            
+            # Income replacement gauge
+            current_replacement = 0
+            if scenarios and 'current' in scenarios:
+                current_replacement = max(0, min(100, scenarios['current'].get('replacement_ratio_achieved', 0) * 100))
+            
+            fig.add_trace(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=current_replacement,
+                    title={'text': "Income Replacement (%)"},
+                    gauge={
+                        'axis': {'range': [None, 100]},
+                        'bar': {'color': "darkblue"},
+                        'steps': [
+                            {'range': [0, 50], 'color': "lightgray"},
+                            {'range': [50, 80], 'color': "gray"}
+                        ],
+                        'threshold': {
+                            'line': {'color': "red", 'width': 4},
+                            'thickness': 0.75,
+                            'value': 80
+                        }
                     }
-                }
-            ),
-            row=2, col=2
-        )
-        
-        fig.update_layout(height=800, showlegend=True, title_text="Retirement Planning Analysis")
-        return fig
+                ),
+                row=2, col=2
+            )
+            
+            fig.update_layout(height=800, showlegend=True, title_text="Retirement Planning Analysis")
+            return fig
+            
+        except Exception as e:
+            return FinancialVisualizer.safe_plot_creation(lambda: go.Figure(), e)
 
 class FinancialFlows:
     """Structured financial advisory flows with step-by-step guidance"""
@@ -897,61 +1143,68 @@ class FinancialFlows:
         
         # Step 3: Analysis and Recommendations
         if st.button("Analyze My Budget", type="primary"):
-            budget_summary = FinancialCalculator.calculate_budget_summary(total_income, expenses)
-            
-            # Display summary cards
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
+            try:
+                budget_summary = FinancialCalculator.calculate_budget_summary(total_income, expenses)
+                
+                # Display summary cards
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Total Income</h3>
+                        <h2>${budget_summary["total_income"]:,.2f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Total Expenses</h3>
+                        <h2>${budget_summary["total_expenses"]:,.2f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col3:
+                    savings_color = 'green' if budget_summary["savings"] >= 0 else 'red'
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Monthly Savings</h3>
+                        <h2 style="color: {savings_color}">${budget_summary["savings"]:,.2f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col4:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Savings Rate</h3>
+                        <h2 style="color: {budget_summary["health_color"]}">{budget_summary["savings_rate"]:.1f}%</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                # Financial Health Assessment
+                recommendations_html = "".join(f"<li>{rec}</li>" for rec in budget_summary["recommendations"])
                 st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Total Income</h3>
-                    <h2>${budget_summary["total_income"]:,.2f}</h2>
+                <div class="summary-card">
+                    <h3>Financial Health: {budget_summary["financial_health"]}</h3>
+                    <h4>Personalized Recommendations:</h4>
+                    <ul>
+                        {recommendations_html}
+                    </ul>
                 </div>
                 ''', unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Total Expenses</h3>
-                    <h2>${budget_summary["total_expenses"]:,.2f}</h2>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Monthly Savings</h3>
-                    <h2 style="color: {'green' if budget_summary["savings"] >= 0 else 'red'}">${budget_summary["savings"]:,.2f}</h2>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col4:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Savings Rate</h3>
-                    <h2 style="color: {budget_summary["health_color"]}">{budget_summary["savings_rate"]:.1f}%</h2>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            # Financial Health Assessment
-            st.markdown(f'''
-            <div class="summary-card">
-                <h3>Financial Health: {budget_summary["financial_health"]}</h3>
-                <h4>Personalized Recommendations:</h4>
-                <ul>
-                    {"".join(f"<li>{rec}</li>" for rec in budget_summary["recommendations"])}
-                </ul>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            # Visualizations
-            st.subheader("Budget Analysis Dashboard")
-            budget_viz = FinancialVisualizer.plot_budget_summary(budget_summary)
-            st.plotly_chart(budget_viz, use_container_width=True)
-            
-            # Store in session state for chat context
-            st.session_state.budget_data = budget_summary
+                
+                # Visualizations
+                st.subheader("Budget Analysis Dashboard")
+                budget_viz = FinancialVisualizer.plot_budget_summary(budget_summary)
+                st.plotly_chart(budget_viz, use_container_width=True)
+                
+                # Store in session state for chat context
+                st.session_state.budget_data = budget_summary
+                
+            except Exception as e:
+                st.error(f"Error analyzing budget: {e}")
+                logger.error(f"Budget analysis error: {traceback.format_exc()}")
     
     @staticmethod
     def investing_flow():
@@ -1032,66 +1285,71 @@ class FinancialFlows:
         
         # Step 3: Portfolio Recommendation
         if st.button("Generate Investment Portfolio", type="primary"):
-            allocation_data = FinancialCalculator.calculate_investment_allocation(
-                risk_profile, time_horizon, investment_capital, current_age
-            )
-            
-            # Display allocation summary
-            st.subheader("Recommended Portfolio Allocation")
-            
-            col1, col2, col3 = st.columns(3)
-            allocation = allocation_data['allocation_percentages']
-            
-            with col1:
+            try:
+                allocation_data = FinancialCalculator.calculate_investment_allocation(
+                    risk_profile, time_horizon, investment_capital, current_age
+                )
+                
+                # Display allocation summary
+                st.subheader("Recommended Portfolio Allocation")
+                
+                col1, col2, col3 = st.columns(3)
+                allocation = allocation_data['allocation_percentages']
+                
+                with col1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Stocks</h3>
+                        <h2>{allocation["stocks"]}%</h2>
+                        <p>${allocation_data["allocation_dollars"]["stocks"]:,.0f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Bonds</h3>
+                        <h2>{allocation["bonds"]}%</h2>
+                        <p>${allocation_data["allocation_dollars"]["bonds"]:,.0f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Cash</h3>
+                        <h2>{allocation["cash"]}%</h2>
+                        <p>${allocation_data["allocation_dollars"]["cash"]:,.0f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                # Portfolio metrics
                 st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Stocks</h3>
-                    <h2>{allocation["stocks"]}%</h2>
-                    <p>${allocation_data["allocation_dollars"]["stocks"]:,.0f}</p>
+                <div class="summary-card">
+                    <h3>Portfolio Metrics</h3>
+                    <p><strong>Expected Annual Return:</strong> {allocation_data["expected_annual_return"]:.1%}</p>
+                    <p><strong>Estimated Volatility:</strong> {allocation_data["volatility_estimate"]:.1%}</p>
+                    <p><strong>Risk Level:</strong> {allocation_data["risk_level"]}</p>
                 </div>
                 ''', unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Bonds</h3>
-                    <h2>{allocation["bonds"]}%</h2>
-                    <p>${allocation_data["allocation_dollars"]["bonds"]:,.0f}</p>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Cash</h3>
-                    <h2>{allocation["cash"]}%</h2>
-                    <p>${allocation_data["allocation_dollars"]["cash"]:,.0f}</p>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            # Portfolio metrics
-            st.markdown(f'''
-            <div class="summary-card">
-                <h3>Portfolio Metrics</h3>
-                <p><strong>Expected Annual Return:</strong> {allocation_data["expected_annual_return"]:.1%}</p>
-                <p><strong>Estimated Volatility:</strong> {allocation_data["volatility_estimate"]:.1%}</p>
-                <p><strong>Risk Level:</strong> {allocation_data["risk_level"]}</p>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            # Projections
-            if allocation_data.get('projections'):
-                st.subheader("Portfolio Growth Projections")
-                projections_df = pd.DataFrame(allocation_data['projections']).T
-                st.dataframe(projections_df.style.format("${:,.0f}"))
-            
-            # Visualizations
-            st.subheader("Investment Portfolio Analysis")
-            investment_viz = FinancialVisualizer.plot_investment_allocation(allocation_data)
-            st.plotly_chart(investment_viz, use_container_width=True)
-            
-            # Store in session state
-            st.session_state.investment_data = allocation_data
+                
+                # Projections
+                if allocation_data.get('projections'):
+                    st.subheader("Portfolio Growth Projections")
+                    projections_df = pd.DataFrame(allocation_data['projections']).T
+                    st.dataframe(projections_df.style.format("${:,.0f}"))
+                
+                # Visualizations
+                st.subheader("Investment Portfolio Analysis")
+                investment_viz = FinancialVisualizer.plot_investment_allocation(allocation_data)
+                st.plotly_chart(investment_viz, use_container_width=True)
+                
+                # Store in session state
+                st.session_state.investment_data = allocation_data
+                
+            except Exception as e:
+                st.error(f"Error generating investment portfolio: {e}")
+                logger.error(f"Investment analysis error: {traceback.format_exc()}")
     
     @staticmethod
     def debt_repayment_flow():
@@ -1130,14 +1388,17 @@ class FinancialFlows:
         # Display current debts
         if st.session_state.debts:
             st.subheader("Your Current Debts")
-            debt_df = pd.DataFrame(st.session_state.debts)
-            debt_df['Balance'] = debt_df['balance'].apply(lambda x: f"${x:,.2f}")
-            debt_df['Interest Rate'] = debt_df['interest_rate'].apply(lambda x: f"{x:.1f}%")
-            debt_df['Min Payment'] = debt_df['minimum_payment'].apply(lambda x: f"${x:.2f}")
-            
-            display_df = debt_df[['name', 'Balance', 'Interest Rate', 'Min Payment']].copy()
-            display_df.columns = ['Debt Name', 'Balance', 'Interest Rate', 'Min Payment']
-            st.dataframe(display_df, use_container_width=True)
+            try:
+                debt_df = pd.DataFrame(st.session_state.debts)
+                debt_df['Balance'] = debt_df['balance'].apply(lambda x: f"${x:,.2f}")
+                debt_df['Interest Rate'] = debt_df['interest_rate'].apply(lambda x: f"{x:.1f}%")
+                debt_df['Min Payment'] = debt_df['minimum_payment'].apply(lambda x: f"${x:.2f}")
+                
+                display_df = debt_df[['name', 'Balance', 'Interest Rate', 'Min Payment']].copy()
+                display_df.columns = ['Debt Name', 'Balance', 'Interest Rate', 'Min Payment']
+                st.dataframe(display_df, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error displaying debts: {e}")
             
             # Clear debts button
             if st.button("Clear All Debts"):
@@ -1162,96 +1423,101 @@ class FinancialFlows:
             
             # Step 3: Analysis and Plan
             if st.button("Create Debt Payoff Plan", type="primary"):
-                debt_analysis = FinancialCalculator.calculate_debt_payoff(st.session_state.debts, extra_payment, strategy)
-                
-                # Summary metrics
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.markdown(f'''
-                    <div class="metric-card">
-                        <h3>Total Debt</h3>
-                        <h2>${debt_analysis["total_debt"]:,.2f}</h2>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                
-                with col2:
-                    st.markdown(f'''
-                    <div class="metric-card">
-                        <h3>Min Payments</h3>
-                        <h2>${debt_analysis["total_minimum_payment"]:,.2f}</h2>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                
-                with col3:
-                    if extra_payment > 0:
-                        st.markdown(f'''
-                        <div class="metric-card">
-                            <h3>Interest Savings</h3>
-                            <h2 style="color: green">${debt_analysis["interest_savings"]:,.2f}</h2>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                    else:
-                        st.markdown(f'''
-                        <div class="metric-card">
-                            <h3>Total Interest</h3>
-                            <h2>${debt_analysis["scenarios"]["minimum_only"]["total_interest"]:,.2f}</h2>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                
-                with col4:
-                    if extra_payment > 0:
-                        st.markdown(f'''
-                        <div class="metric-card">
-                            <h3>Time Savings</h3>
-                            <h2 style="color: green">{debt_analysis["time_savings_months"]:.0f} months</h2>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                    else:
-                        st.markdown(f'''
-                        <div class="metric-card">
-                            <h3>Payoff Time</h3>
-                            <h2>{debt_analysis["scenarios"]["minimum_only"]["total_months"]:.0f} months</h2>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                
-                # Detailed payoff plan
-                st.subheader("Debt Payoff Priority Order")
-                scenario_key = 'with_extra' if extra_payment > 0 else 'minimum_only'
-                payoff_plan = debt_analysis['scenarios'][scenario_key]['payoff_plan']
-                
-                plan_df = pd.DataFrame(payoff_plan)
-                if not plan_df.empty:
-                    plan_df['Balance'] = plan_df['balance'].apply(lambda x: f"${x:,.2f}")
-                    plan_df['Interest Rate'] = plan_df['interest_rate'].apply(lambda x: f"{x:.1f}%")
-                    plan_df['Monthly Payment'] = plan_df['monthly_payment'].apply(lambda x: f"${x:.2f}")
-                    plan_df['Interest Paid'] = plan_df['interest_paid'].apply(lambda x: f"${x:,.2f}")
+                try:
+                    debt_analysis = FinancialCalculator.calculate_debt_payoff(st.session_state.debts, extra_payment, strategy)
                     
-                    display_plan = plan_df[['priority', 'debt_name', 'Balance', 'Interest Rate', 'Monthly Payment', 'months_to_payoff', 'Interest Paid']].copy()
-                    display_plan.columns = ['Priority', 'Debt Name', 'Balance', 'Interest Rate', 'Monthly Payment', 'Months to Payoff', 'Total Interest']
-                    st.dataframe(display_plan, use_container_width=True)
-                
-                # Recommendations
-                st.markdown(f'''
-                <div class="summary-card">
-                    <h3>Debt Payoff Recommendations</h3>
-                    <ul>
-                        <li>🎯 Focus on paying ${debt_analysis["recommended_extra_payment"]:.0f} extra per month if possible</li>
-                        <li>📊 You're using the <strong>{strategy.title()}</strong> method - {"pay highest interest rates first" if strategy == "avalanche" else "pay smallest balances first"}</li>
-                        <li>💡 Consider debt consolidation if you have high-interest credit cards</li>
-                        <li>🚫 Avoid taking on new debt during your payoff journey</li>
-                        <li>📱 Set up automatic payments to stay on track</li>
-                    </ul>
-                </div>
-                ''', unsafe_allow_html=True)
-                
-                # Visualization
-                st.subheader("Debt Analysis Dashboard")
-                debt_viz = FinancialVisualizer.plot_debt_payoff(debt_analysis)
-                st.plotly_chart(debt_viz, use_container_width=True)
-                
-                # Store in session state
-                st.session_state.debt_data = debt_analysis
+                    # Summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>Total Debt</h3>
+                            <h2>${debt_analysis["total_debt"]:,.2f}</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    
+                    with col2:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>Min Payments</h3>
+                            <h2>${debt_analysis["total_minimum_payment"]:,.2f}</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    
+                    with col3:
+                        if extra_payment > 0:
+                            st.markdown(f'''
+                            <div class="metric-card">
+                                <h3>Interest Savings</h3>
+                                <h2 style="color: green">${debt_analysis["interest_savings"]:,.2f}</h2>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                        else:
+                            st.markdown(f'''
+                            <div class="metric-card">
+                                <h3>Total Interest</h3>
+                                <h2>${debt_analysis["scenarios"]["minimum_only"]["total_interest"]:,.2f}</h2>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                    
+                    with col4:
+                        if extra_payment > 0:
+                            st.markdown(f'''
+                            <div class="metric-card">
+                                <h3>Time Savings</h3>
+                                <h2 style="color: green">{debt_analysis["time_savings_months"]:.0f} months</h2>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                        else:
+                            st.markdown(f'''
+                            <div class="metric-card">
+                                <h3>Payoff Time</h3>
+                                <h2>{debt_analysis["scenarios"]["minimum_only"]["total_months"]:.0f} months</h2>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                    
+                    # Detailed payoff plan
+                    st.subheader("Debt Payoff Priority Order")
+                    scenario_key = 'with_extra' if extra_payment > 0 else 'minimum_only'
+                    payoff_plan = debt_analysis['scenarios'][scenario_key]['payoff_plan']
+                    
+                    if payoff_plan:
+                        plan_df = pd.DataFrame(payoff_plan)
+                        plan_df['Balance'] = plan_df['balance'].apply(lambda x: f"${x:,.2f}")
+                        plan_df['Interest Rate'] = plan_df['interest_rate'].apply(lambda x: f"{x:.1f}%")
+                        plan_df['Monthly Payment'] = plan_df['monthly_payment'].apply(lambda x: f"${x:.2f}")
+                        plan_df['Interest Paid'] = plan_df['interest_paid'].apply(lambda x: f"${x:,.2f}")
+                        
+                        display_plan = plan_df[['priority', 'debt_name', 'Balance', 'Interest Rate', 'Monthly Payment', 'months_to_payoff', 'Interest Paid']].copy()
+                        display_plan.columns = ['Priority', 'Debt Name', 'Balance', 'Interest Rate', 'Monthly Payment', 'Months to Payoff', 'Total Interest']
+                        st.dataframe(display_plan, use_container_width=True)
+                    
+                    # Recommendations
+                    st.markdown(f'''
+                    <div class="summary-card">
+                        <h3>Debt Payoff Recommendations</h3>
+                        <ul>
+                            <li>🎯 Focus on paying ${debt_analysis["recommended_extra_payment"]:.0f} extra per month if possible</li>
+                            <li>📊 You're using the <strong>{strategy.title()}</strong> method - {"pay highest interest rates first" if strategy == "avalanche" else "pay smallest balances first"}</li>
+                            <li>💡 Consider debt consolidation if you have high-interest credit cards</li>
+                            <li>🚫 Avoid taking on new debt during your payoff journey</li>
+                            <li>📱 Set up automatic payments to stay on track</li>
+                        </ul>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    # Visualization
+                    st.subheader("Debt Analysis Dashboard")
+                    debt_viz = FinancialVisualizer.plot_debt_payoff(debt_analysis)
+                    st.plotly_chart(debt_viz, use_container_width=True)
+                    
+                    # Store in session state
+                    st.session_state.debt_data = debt_analysis
+                    
+                except Exception as e:
+                    st.error(f"Error creating debt payoff plan: {e}")
+                    logger.error(f"Debt analysis error: {traceback.format_exc()}")
     
     @staticmethod
     def retirement_planning_flow():
@@ -1299,96 +1565,102 @@ class FinancialFlows:
         
         # Step 3: Analysis and Recommendations
         if st.button("Analyze Retirement Plan", type="primary"):
-            total_monthly_contribution = monthly_contribution + employer_match
-            retirement_analysis = FinancialCalculator.calculate_retirement_needs(
-                current_age, retirement_age, current_income, current_savings, total_monthly_contribution
-            )
-            
-            # Key metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Years to Retirement</h3>
-                    <h2>{retirement_analysis["years_to_retirement"]}</h2>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Projected Savings</h3>
-                    <h2>${retirement_analysis["projected_savings"]:,.0f}</h2>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Retirement Goal</h3>
-                    <h2>${retirement_analysis["retirement_corpus_needed"]:,.0f}</h2>
-                </div>
-                ''', unsafe_allow_html=True)
-            
-            with col4:
-                gap = retirement_analysis["retirement_gap"]
-                gap_color = "red" if gap > 0 else "green"
-                gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
+            try:
+                total_monthly_contribution = monthly_contribution + employer_match
+                retirement_analysis = FinancialCalculator.calculate_retirement_needs(
+                    current_age, retirement_age, current_income, current_savings, total_monthly_contribution
+                )
                 
+                # Key metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Years to Retirement</h3>
+                        <h2>{retirement_analysis["years_to_retirement"]}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Projected Savings</h3>
+                        <h2>${retirement_analysis["projected_savings"]:,.0f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Retirement Goal</h3>
+                        <h2>${retirement_analysis["retirement_corpus_needed"]:,.0f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col4:
+                    gap = retirement_analysis["retirement_gap"]
+                    gap_color = "red" if gap > 0 else "green"
+                    gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
+                    
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Retirement Gap</h3>
+                        <h2 style="color: {gap_color}">{gap_text}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                # Scenario comparison
+                st.subheader("Retirement Scenarios")
+                scenarios = retirement_analysis['scenarios']
+                
+                scenario_df = pd.DataFrame({
+                    'Scenario': ['Conservative', 'Current Plan', 'Aggressive'],
+                    'Monthly Contribution': [f"${scenarios['conservative']['monthly_contribution']:.0f}",
+                                           f"${scenarios['current']['monthly_contribution']:.0f}",
+                                           f"${scenarios['aggressive']['monthly_contribution']:.0f}"],
+                    'Projected Total': [f"${scenarios['conservative']['projected_total']:,.0f}",
+                                      f"${scenarios['current']['projected_total']:,.0f}",
+                                      f"${scenarios['aggressive']['projected_total']:,.0f}"],
+                    'Monthly Retirement Income': [f"${scenarios['conservative']['monthly_retirement_income']:,.0f}",
+                                                f"${scenarios['current']['monthly_retirement_income']:,.0f}",
+                                                f"${scenarios['aggressive']['monthly_retirement_income']:,.0f}"],
+                    'Income Replacement': [f"{scenarios['conservative']['replacement_ratio_achieved']:.1%}",
+                                         f"{scenarios['current']['replacement_ratio_achieved']:.1%}",
+                                         f"{scenarios['aggressive']['replacement_ratio_achieved']:.1%}"]
+                })
+                
+                st.dataframe(scenario_df, use_container_width=True)
+                
+                # Recommendations
+                recommendations_html = "".join(f"<li>{rec}</li>" for rec in retirement_analysis["recommendations"])
                 st.markdown(f'''
-                <div class="metric-card">
-                    <h3>Retirement Gap</h3>
-                    <h2 style="color: {gap_color}">{gap_text}</h2>
+                <div class="summary-card">
+                    <h3>Retirement Planning Recommendations</h3>
+                    <ul>
+                        {recommendations_html}
+                    </ul>
                 </div>
                 ''', unsafe_allow_html=True)
-            
-            # Scenario comparison
-            st.subheader("Retirement Scenarios")
-            scenarios = retirement_analysis['scenarios']
-            
-            scenario_df = pd.DataFrame({
-                'Scenario': ['Conservative', 'Current Plan', 'Aggressive'],
-                'Monthly Contribution': [f"${scenarios['conservative']['monthly_contribution']:.0f}",
-                                       f"${scenarios['current']['monthly_contribution']:.0f}",
-                                       f"${scenarios['aggressive']['monthly_contribution']:.0f}"],
-                'Projected Total': [f"${scenarios['conservative']['projected_total']:,.0f}",
-                                  f"${scenarios['current']['projected_total']:,.0f}",
-                                  f"${scenarios['aggressive']['projected_total']:,.0f}"],
-                'Monthly Retirement Income': [f"${scenarios['conservative']['monthly_retirement_income']:,.0f}",
-                                            f"${scenarios['current']['monthly_retirement_income']:,.0f}",
-                                            f"${scenarios['aggressive']['monthly_retirement_income']:,.0f}"],
-                'Income Replacement': [f"{scenarios['conservative']['replacement_ratio_achieved']:.1%}",
-                                     f"{scenarios['current']['replacement_ratio_achieved']:.1%}",
-                                     f"{scenarios['aggressive']['replacement_ratio_achieved']:.1%}"]
-            })
-            
-            st.dataframe(scenario_df, use_container_width=True)
-            
-            # Recommendations
-            st.markdown(f'''
-            <div class="summary-card">
-                <h3>Retirement Planning Recommendations</h3>
-                <ul>
-                    {"".join(f"<li>{rec}</li>" for rec in retirement_analysis["recommendations"])}
-                </ul>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            # Action items
-            if gap > 0:
-                required_increase = retirement_analysis["required_monthly_contribution"] - total_monthly_contribution
-                st.warning(f"⚠️ To meet your retirement goal, consider increasing your monthly contribution by ${required_increase:.0f}")
-            else:
-                st.success("🎉 Congratulations! You're on track to meet your retirement goals!")
-            
-            # Visualization
-            st.subheader("Retirement Planning Dashboard")
-            retirement_viz = FinancialVisualizer.plot_retirement_projections(retirement_analysis)
-            st.plotly_chart(retirement_viz, use_container_width=True)
-            
-            # Store in session state
-            st.session_state.retirement_data = retirement_analysis
+                
+                # Action items
+                if gap > 0:
+                    required_increase = retirement_analysis["required_monthly_contribution"] - total_monthly_contribution
+                    st.warning(f"⚠️ To meet your retirement goal, consider increasing your monthly contribution by ${required_increase:.0f}")
+                else:
+                    st.success("🎉 Congratulations! You're on track to meet your retirement goals!")
+                
+                # Visualization
+                st.subheader("Retirement Planning Dashboard")
+                retirement_viz = FinancialVisualizer.plot_retirement_projections(retirement_analysis)
+                st.plotly_chart(retirement_viz, use_container_width=True)
+                
+                # Store in session state
+                st.session_state.retirement_data = retirement_analysis
+                
+            except Exception as e:
+                st.error(f"Error analyzing retirement plan: {e}")
+                logger.error(f"Retirement analysis error: {traceback.format_exc()}")
 
 class PersonaManager:
     """Manage different financial advisor personas"""
@@ -1440,45 +1712,103 @@ class PersonaManager:
 def extract_text_from_pdf(file_path):
     """Extracts text from PDFs using PyMuPDF, falls back to OCR if needed."""
     try:
+        if not os.path.exists(file_path):
+            logger.error(f"PDF file not found: {file_path}")
+            return []
+            
         doc = fitz.open(file_path)
-        text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
+        text_list = []
+        
+        for page in doc:
+            try:
+                page_text = page.get_text("text")
+                if page_text and page_text.strip():
+                    text_list.append(page_text)
+            except Exception as e:
+                logger.warning(f"Error extracting text from page: {e}")
+                continue
+        
         doc.close()
-        return text_list if text_list else extract_text_from_images(file_path)
+        
+        if text_list:
+            return text_list
+        else:
+            # Fallback to OCR if no text found
+            return extract_text_from_images(file_path)
+            
     except Exception as e:
-        st.error(f"⚠️ Error extracting text from PDF: {e}")
+        logger.error(f"Error extracting text from PDF: {e}")
         return []
 
 def extract_text_from_images(pdf_path):
     """Extracts text from image-based PDFs using GPU-accelerated EasyOCR."""
     if reader is None:
-        st.error("OCR reader not available")
+        logger.error("OCR reader not available")
         return []
     
     try:
+        if not os.path.exists(pdf_path):
+            logger.error(f"PDF file not found: {pdf_path}")
+            return []
+            
         images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
-        return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
+        text_list = []
+        
+        for img in images:
+            try:
+                img_array = np.array(img)
+                ocr_result = reader.readtext(img_array, detail=0)
+                if ocr_result:
+                    text_list.append("\n".join(ocr_result))
+            except Exception as e:
+                logger.warning(f"Error processing image with OCR: {e}")
+                continue
+                
+        return text_list
+        
     except Exception as e:
-        st.error(f"⚠️ Error extracting text from images: {e}")
+        logger.error(f"Error extracting text from images: {e}")
         return []
 
 def setup_vectorstore(documents):
     """Creates a FAISS vector store using Hugging Face embeddings."""
     try:
+        if not documents:
+            logger.warning("No documents provided for vectorstore")
+            return None
+            
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         
         if DEVICE == "cuda":
-            embeddings.model = embeddings.model.to(torch.device("cuda"))
+            try:
+                embeddings.model = embeddings.model.to(torch.device("cuda"))
+            except Exception as e:
+                logger.warning(f"Could not move embeddings to GPU: {e}")
         
         text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
         doc_chunks = text_splitter.split_text("\n".join(documents))
+        
+        if not doc_chunks:
+            logger.warning("No text chunks created from documents")
+            return None
+            
         return FAISS.from_texts(doc_chunks, embeddings)
+        
     except Exception as e:
-        st.error(f"Error setting up vector store: {e}")
+        logger.error(f"Error setting up vector store: {e}")
         return None
 
 def create_chain(vectorstore):
     """Creates the chat chain with optimized retriever settings."""
     try:
+        if not groq_api_key:
+            logger.warning("No GROQ API key available")
+            return None
+            
+        if not vectorstore:
+            logger.warning("No vectorstore available")
+            return None
+            
         if "memory" not in st.session_state:
             st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
@@ -1492,58 +1822,64 @@ def create_chain(vectorstore):
             memory=st.session_state.memory,
             verbose=False
         )
+        
     except Exception as e:
-        st.error(f"Error creating conversation chain: {e}")
+        logger.error(f"Error creating conversation chain: {e}")
         return None
 
 def get_fallback_response(user_input: str, persona: str) -> str:
     """Rule-based fallback responses when LLM is unavailable"""
-    user_input_lower = user_input.lower()
-    
-    # Budget-related responses
-    if any(word in user_input_lower for word in ['budget', 'expense', 'spending', 'money']):
-        if persona == "Friendly Coach":
-            return "😊 Great question about budgeting! I'd love to help you create a budget. Try using our Budget Flow above to get personalized recommendations!"
-        elif persona == "Practical Advisor":
-            return "💼 For budgeting, follow the 50/30/20 rule: 50% needs, 30% wants, 20% savings. Use our budgeting tool for detailed analysis."
+    try:
+        user_input_lower = user_input.lower()
+        
+        # Budget-related responses
+        if any(word in user_input_lower for word in ['budget', 'expense', 'spending', 'money']):
+            if persona == "Friendly Coach":
+                return "😊 Great question about budgeting! I'd love to help you create a budget. Try using our Budget Flow above to get personalized recommendations!"
+            elif persona == "Practical Advisor":
+                return "💼 For budgeting, follow the 50/30/20 rule: 50% needs, 30% wants, 20% savings. Use our budgeting tool for detailed analysis."
+            else:
+                return "🛡️ A conservative approach to budgeting is essential. Start by tracking all expenses and prioritizing emergency savings."
+        
+        # Investment-related responses
+        elif any(word in user_input_lower for word in ['invest', 'portfolio', 'stocks', 'bonds']):
+            if persona == "Friendly Coach":
+                return "📈 Investing is exciting! Let's build a portfolio that matches your dreams. Check out our Investment Flow for personalized recommendations!"
+            elif persona == "Practical Advisor":
+                return "💼 Diversification is key. Consider low-cost index funds and match your risk tolerance to your time horizon."
+            else:
+                return "🛡️ Conservative investing focuses on capital preservation. Consider bonds, CDs, and blue-chip dividend stocks."
+        
+        # Debt-related responses
+        elif any(word in user_input_lower for word in ['debt', 'loan', 'credit card', 'payoff']):
+            if persona == "Friendly Coach":
+                return "💪 You can conquer your debt! Let's create a plan together. Our Debt Repayment Flow will help you become debt-free!"
+            elif persona == "Practical Advisor":
+                return "💼 Focus on high-interest debt first (avalanche method) or smallest balances (snowball method). Use our debt calculator."
+            else:
+                return "🛡️ Debt elimination should be your priority. Pay minimums on all debts, then attack the highest interest rate first."
+        
+        # Retirement-related responses
+        elif any(word in user_input_lower for word in ['retirement', 'retire', '401k', 'ira']):
+            if persona == "Friendly Coach":
+                return "🏖️ Your future self will thank you for planning now! Let's use our Retirement Planning Flow to secure your golden years!"
+            elif persona == "Practical Advisor":
+                return "💼 Start with employer 401(k) matching, then max out IRAs. Aim to save 10-15% of income for retirement."
+            else:
+                return "🛡️ Conservative retirement planning means starting early and saving consistently. Consider target-date funds for simplicity."
+        
+        # General financial advice
         else:
-            return "🛡️ A conservative approach to budgeting is essential. Start by tracking all expenses and prioritizing emergency savings."
-    
-    # Investment-related responses
-    elif any(word in user_input_lower for word in ['invest', 'portfolio', 'stocks', 'bonds']):
-        if persona == "Friendly Coach":
-            return "📈 Investing is exciting! Let's build a portfolio that matches your dreams. Check out our Investment Flow for personalized recommendations!"
-        elif persona == "Practical Advisor":
-            return "💼 Diversification is key. Consider low-cost index funds and match your risk tolerance to your time horizon."
-        else:
-            return "🛡️ Conservative investing focuses on capital preservation. Consider bonds, CDs, and blue-chip dividend stocks."
-    
-    # Debt-related responses
-    elif any(word in user_input_lower for word in ['debt', 'loan', 'credit card', 'payoff']):
-        if persona == "Friendly Coach":
-            return "💪 You can conquer your debt! Let's create a plan together. Our Debt Repayment Flow will help you become debt-free!"
-        elif persona == "Practical Advisor":
-            return "💼 Focus on high-interest debt first (avalanche method) or smallest balances (snowball method). Use our debt calculator."
-        else:
-            return "🛡️ Debt elimination should be your priority. Pay minimums on all debts, then attack the highest interest rate first."
-    
-    # Retirement-related responses
-    elif any(word in user_input_lower for word in ['retirement', 'retire', '401k', 'ira']):
-        if persona == "Friendly Coach":
-            return "🏖️ Your future self will thank you for planning now! Let's use our Retirement Planning Flow to secure your golden years!"
-        elif persona == "Practical Advisor":
-            return "💼 Start with employer 401(k) matching, then max out IRAs. Aim to save 10-15% of income for retirement."
-        else:
-            return "🛡️ Conservative retirement planning means starting early and saving consistently. Consider target-date funds for simplicity."
-    
-    # General financial advice
-    else:
-        if persona == "Friendly Coach":
-            return "😊 I'm here to help with all your financial questions! Try our guided flows above, or ask me about budgeting, investing, debt, or retirement planning!"
-        elif persona == "Practical Advisor":
-            return "💼 I can help with budgeting, investing, debt payoff, and retirement planning. What specific financial goal would you like to work on?"
-        else:
-            return "🛡️ Financial security comes from careful planning. I can help with conservative strategies for budgeting, investing, and retirement. What's your priority?"
+            if persona == "Friendly Coach":
+                return "😊 I'm here to help with all your financial questions! Try our guided flows above, or ask me about budgeting, investing, debt, or retirement planning!"
+            elif persona == "Practical Advisor":
+                return "💼 I can help with budgeting, investing, debt payoff, and retirement planning. What specific financial goal would you like to work on?"
+            else:
+                return "🛡️ Financial security comes from careful planning. I can help with conservative strategies for budgeting, investing, and retirement. What's your priority?"
+                
+    except Exception as e:
+        logger.error(f"Error in fallback response: {e}")
+        return "I'm here to help with your financial questions. Please try asking about budgeting, investing, debt management, or retirement planning."
 
 async def get_response(user_input, persona_info):
     """Get response from LLM or fallback system"""
@@ -1569,185 +1905,206 @@ async def get_response(user_input, persona_info):
         else:
             # Use fallback system
             return get_fallback_response(user_input, list(PersonaManager.PERSONAS.keys())[0])
+            
     except Exception as e:
+        logger.error(f"Error getting LLM response: {e}")
         return get_fallback_response(user_input, list(PersonaManager.PERSONAS.keys())[0])
 
 def get_financial_context():
     """Get context from previous financial analysis"""
-    context = []
-    
-    if 'budget_data' in st.session_state:
-        budget = st.session_state.budget_data
-        context.append(f"Budget Analysis: Income ${budget['total_income']:,.0f}, Expenses ${budget['total_expenses']:,.0f}, Savings Rate {budget['savings_rate']:.1f}%")
-    
-    if 'investment_data' in st.session_state:
-        investment = st.session_state.investment_data
-        context.append(f"Investment Portfolio: {investment['risk_level']} risk profile, Expected return {investment['expected_annual_return']:.1%}")
-    
-    if 'debt_data' in st.session_state:
-        debt = st.session_state.debt_data
-        context.append(f"Debt Analysis: Total debt ${debt['total_debt']:,.0f}, Strategy: {debt['strategy']}")
-    
-    if 'retirement_data' in st.session_state:
-        retirement = st.session_state.retirement_data
-        context.append(f"Retirement Planning: {retirement['years_to_retirement']} years to retirement, Gap: ${retirement['retirement_gap']:,.0f}")
-    
-    return " | ".join(context) if context else "No previous financial analysis available."
+    try:
+        context = []
+        
+        if 'budget_data' in st.session_state:
+            budget = st.session_state.budget_data
+            context.append(f"Budget Analysis: Income ${budget['total_income']:,.0f}, Expenses ${budget['total_expenses']:,.0f}, Savings Rate {budget['savings_rate']:.1f}%")
+        
+        if 'investment_data' in st.session_state:
+            investment = st.session_state.investment_data
+            context.append(f"Investment Portfolio: {investment['risk_level']} risk profile, Expected return {investment['expected_annual_return']:.1%}")
+        
+        if 'debt_data' in st.session_state:
+            debt = st.session_state.debt_data
+            context.append(f"Debt Analysis: Total debt ${debt['total_debt']:,.0f}, Strategy: {debt['strategy']}")
+        
+        if 'retirement_data' in st.session_state:
+            retirement = st.session_state.retirement_data
+            context.append(f"Retirement Planning: {retirement['years_to_retirement']} years to retirement, Gap: ${retirement['retirement_gap']:,.0f}")
+        
+        return " | ".join(context) if context else "No previous financial analysis available."
+        
+    except Exception as e:
+        logger.error(f"Error getting financial context: {e}")
+        return "No previous financial analysis available."
 
 def main():
     """Main application function"""
     
-    # Header
-    st.markdown('<h1 class="main-header">🦙 AI Financial Advisor - LLAMA 3.3</h1>', unsafe_allow_html=True)
-    
-    # Sidebar for persona selection and navigation
-    selected_persona, persona_info = PersonaManager.display_persona_selector()
-    
-    # Navigation
-    st.sidebar.subheader("📊 Financial Tools")
-    selected_flow = st.sidebar.selectbox(
-        "Choose a Financial Flow",
-        ["Chat Interface", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
-    )
-    
-    # PDF Upload Section
-    st.sidebar.subheader("📄 Document Analysis")
-    uploaded_files = st.sidebar.file_uploader(
-        "Upload Financial Documents", 
-        type=["pdf"], 
-        accept_multiple_files=True,
-        help="Upload bank statements, investment reports, or other financial documents"
-    )
-    
-    if uploaded_files:
-        all_extracted_text = []
+    try:
+        # Header
+        st.markdown('<h1 class="main-header">🦙 AI Financial Advisor - LLAMA 3.3</h1>', unsafe_allow_html=True)
         
-        for uploaded_file in uploaded_files:
-            file_path = os.path.join(working_dir, uploaded_file.name)
+        # Sidebar for persona selection and navigation
+        selected_persona, persona_info = PersonaManager.display_persona_selector()
+        
+        # Navigation
+        st.sidebar.subheader("📊 Financial Tools")
+        selected_flow = st.sidebar.selectbox(
+            "Choose a Financial Flow",
+            ["Chat Interface", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
+        )
+        
+        # PDF Upload Section
+        st.sidebar.subheader("📄 Document Analysis")
+        uploaded_files = st.sidebar.file_uploader(
+            "Upload Financial Documents", 
+            type=["pdf"], 
+            accept_multiple_files=True,
+            help="Upload bank statements, investment reports, or other financial documents"
+        )
+        
+        if uploaded_files:
+            all_extracted_text = []
             
-            with open(file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            for uploaded_file in uploaded_files:
+                try:
+                    file_path = os.path.join(working_dir, uploaded_file.name)
+                    
+                    with open(file_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
 
-            try:
-                extracted_text = extract_text_from_pdf(file_path)
-                all_extracted_text.extend(extracted_text)
-                st.sidebar.success(f"✅ Processed {uploaded_file.name}")
-            except Exception as e:
-                st.sidebar.error(f"⚠️ Error processing {uploaded_file.name}: {e}")
+                    extracted_text = extract_text_from_pdf(file_path)
+                    if extracted_text:
+                        all_extracted_text.extend(extracted_text)
+                        st.sidebar.success(f"✅ Processed {uploaded_file.name}")
+                    else:
+                        st.sidebar.warning(f"⚠️ No text found in {uploaded_file.name}")
+                        
+                except Exception as e:
+                    st.sidebar.error(f"⚠️ Error processing {uploaded_file.name}: {e}")
+                    logger.error(f"File processing error: {e}")
 
-        if all_extracted_text:
-            vectorstore = setup_vectorstore(all_extracted_text)
-            if vectorstore:
-                st.session_state.vectorstore = vectorstore
-                conversation_chain = create_chain(vectorstore)
-                if conversation_chain:
-                    st.session_state.conversation_chain = conversation_chain
-                    st.sidebar.info("📚 Documents ready for analysis!")
+            if all_extracted_text:
+                vectorstore = setup_vectorstore(all_extracted_text)
+                if vectorstore:
+                    st.session_state.vectorstore = vectorstore
+                    conversation_chain = create_chain(vectorstore)
+                    if conversation_chain:
+                        st.session_state.conversation_chain = conversation_chain
+                        st.sidebar.info("📚 Documents ready for analysis!")
+                    else:
+                        st.sidebar.warning("⚠️ Could not create conversation chain")
                 else:
-                    st.sidebar.warning("⚠️ Could not create conversation chain")
-            else:
-                st.sidebar.warning("⚠️ Could not process documents")
-    
-    # Main content area
-    if selected_flow == "Smart Budgeting":
-        FinancialFlows.budgeting_flow()
-    elif selected_flow == "Investment Planning":
-        FinancialFlows.investing_flow()
-    elif selected_flow == "Debt Repayment":
-        FinancialFlows.debt_repayment_flow()
-    elif selected_flow == "Retirement Planning":
-        FinancialFlows.retirement_planning_flow()
-    else:
-        # Chat Interface
-        st.subheader(f"💬 Chat with {persona_info['emoji']} {selected_persona}")
+                    st.sidebar.warning("⚠️ Could not process documents")
         
-        # Initialize chat history
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
-        
-        # Display chat history
-        for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        # Chat input
-        if user_input := st.chat_input(f"Ask {selected_persona} about your finances..."):
-            # Add user message to chat history
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
+        # Main content area
+        if selected_flow == "Smart Budgeting":
+            FinancialFlows.budgeting_flow()
+        elif selected_flow == "Investment Planning":
+            FinancialFlows.investing_flow()
+        elif selected_flow == "Debt Repayment":
+            FinancialFlows.debt_repayment_flow()
+        elif selected_flow == "Retirement Planning":
+            FinancialFlows.retirement_planning_flow()
+        else:
+            # Chat Interface
+            st.subheader(f"💬 Chat with {persona_info['emoji']} {selected_persona}")
             
-            with st.chat_message("user"):
-                st.markdown(user_input)
+            # Initialize chat history
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = []
             
-            # Get AI response
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        assistant_response = loop.run_until_complete(get_response(user_input, persona_info))
-                    except Exception as e:
-                        assistant_response = get_fallback_response(user_input, selected_persona)
+            # Display chat history
+            for message in st.session_state.chat_history:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+            
+            # Chat input
+            if user_input := st.chat_input(f"Ask {selected_persona} about your finances..."):
+                # Add user message to chat history
+                st.session_state.chat_history.append({"role": "user", "content": user_input})
                 
-                st.markdown(assistant_response)
+                with st.chat_message("user"):
+                    st.markdown(user_input)
+                
+                # Get AI response
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            assistant_response = loop.run_until_complete(get_response(user_input, persona_info))
+                        except Exception as e:
+                            logger.error(f"Error getting response: {e}")
+                            assistant_response = get_fallback_response(user_input, selected_persona)
+                    
+                    st.markdown(assistant_response)
+                
+                # Add assistant response to chat history
+                st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
+                
+                # Save to memory if available
+                if "memory" in st.session_state:
+                    try:
+                        st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
+                    except Exception as e:
+                        logger.warning(f"Could not save to memory: {e}")
+        
+        # Footer with financial summary
+        if any(key in st.session_state for key in ['budget_data', 'investment_data', 'debt_data', 'retirement_data']):
+            st.markdown("---")
+            st.subheader("📊 Your Financial Summary")
             
-            # Add assistant response to chat history
-            st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
+            summary_cols = st.columns(4)
             
-            # Save to memory if available
-            if "memory" in st.session_state:
-                st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
-    
-    # Footer with financial summary
-    if any(key in st.session_state for key in ['budget_data', 'investment_data', 'debt_data', 'retirement_data']):
-        st.markdown("---")
-        st.subheader("📊 Your Financial Summary")
-        
-        summary_cols = st.columns(4)
-        
-        if 'budget_data' in st.session_state:
-            with summary_cols[0]:
-                budget = st.session_state.budget_data
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h4>💰 Budget Health</h4>
-                    <p><strong>{budget["financial_health"]}</strong></p>
-                    <p>Savings Rate: {budget["savings_rate"]:.1f}%</p>
-                </div>
-                ''', unsafe_allow_html=True)
-        
-        if 'investment_data' in st.session_state:
-            with summary_cols[1]:
-                investment = st.session_state.investment_data
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h4>📈 Investment Profile</h4>
-                    <p><strong>{investment["risk_level"]}</strong></p>
-                    <p>Expected Return: {investment["expected_annual_return"]:.1%}</p>
-                </div>
-                ''', unsafe_allow_html=True)
-        
-        if 'debt_data' in st.session_state:
-            with summary_cols[2]:
-                debt = st.session_state.debt_data
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h4>💳 Debt Status</h4>
-                    <p><strong>${debt["total_debt"]:,.0f}</strong></p>
-                    <p>Strategy: {debt["strategy"].title()}</p>
-                </div>
-                ''', unsafe_allow_html=True)
-        
-        if 'retirement_data' in st.session_state:
-            with summary_cols[3]:
-                retirement = st.session_state.retirement_data
-                gap_status = "On Track" if retirement["retirement_gap"] <= 0 else f"${retirement['retirement_gap']:,.0f} gap"
-                st.markdown(f'''
-                <div class="metric-card">
-                    <h4>🏖️ Retirement</h4>
-                    <p><strong>{retirement["years_to_retirement"]} years left</strong></p>
-                    <p>{gap_status}</p>
-                </div>
-                ''', unsafe_allow_html=True)
+            if 'budget_data' in st.session_state:
+                with summary_cols[0]:
+                    budget = st.session_state.budget_data
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h4>💰 Budget Health</h4>
+                        <p><strong>{budget["financial_health"]}</strong></p>
+                        <p>Savings Rate: {budget["savings_rate"]:.1f}%</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            
+            if 'investment_data' in st.session_state:
+                with summary_cols[1]:
+                    investment = st.session_state.investment_data
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h4>📈 Investment Profile</h4>
+                        <p><strong>{investment["risk_level"]}</strong></p>
+                        <p>Expected Return: {investment["expected_annual_return"]:.1%}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            
+            if 'debt_data' in st.session_state:
+                with summary_cols[2]:
+                    debt = st.session_state.debt_data
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h4>💳 Debt Status</h4>
+                        <p><strong>${debt["total_debt"]:,.0f}</strong></p>
+                        <p>Strategy: {debt["strategy"].title()}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+            
+            if 'retirement_data' in st.session_state:
+                with summary_cols[3]:
+                    retirement = st.session_state.retirement_data
+                    gap_status = "On Track" if retirement["retirement_gap"] <= 0 else f"${retirement['retirement_gap']:,.0f} gap"
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h4>🏖️ Retirement</h4>
+                        <p><strong>{retirement["years_to_retirement"]} years left</strong></p>
+                        <p>{gap_status}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+    except Exception as e:
+        st.error(f"Application error: {e}")
+        logger.error(f"Main application error: {traceback.format_exc()}")
 
 if __name__ == "__main__":
     main()
