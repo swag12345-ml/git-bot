@@ -1121,7 +1121,10 @@ class FinancialFlows:
         # Initialize session state for form data
         if 'budget_form_submitted' not in st.session_state:
             st.session_state.budget_form_submitted = False
+        if 'budget_form_data' not in st.session_state:
+            st.session_state.budget_form_data = {}
         
+        # Create form
         with st.form("budget_form"):
             # Step 1: Income
             st.subheader("Step 1: Monthly Income")
@@ -1167,8 +1170,15 @@ class FinancialFlows:
         # Process form submission
         if submitted:
             st.session_state.budget_form_submitted = True
-            budget_summary = FinancialCalculator.calculate_budget_summary(total_income, expenses)
-            st.session_state.budget_data = budget_summary
+            st.session_state.budget_form_data = {
+                'total_income': total_income,
+                'expenses': expenses
+            }
+        
+        # Display results if form has been submitted
+        if st.session_state.budget_form_submitted and st.session_state.budget_form_data:
+            form_data = st.session_state.budget_form_data
+            budget_summary = FinancialCalculator.calculate_budget_summary(form_data['total_income'], form_data['expenses'])
             
             # Display summary cards
             col1, col2, col3, col4 = st.columns(4)
@@ -1221,30 +1231,8 @@ class FinancialFlows:
             budget_viz = FinancialVisualizer.plot_budget_summary(budget_summary)
             st.plotly_chart(budget_viz, use_container_width=True)
             
-            # AI-Enhanced Suggestions
-            st.subheader("🤖 AI-Powered Budget Insights")
-            try:
-                ai_prompt = f"""
-                Based on this budget analysis:
-                - Total Income: ${budget_summary['total_income']:,.2f}
-                - Total Expenses: ${budget_summary['total_expenses']:,.2f}
-                - Savings Rate: {budget_summary['savings_rate']:.1f}%
-                - Financial Health: {budget_summary['financial_health']}
-                
-                Provide personalized advice on:
-                1. Specific expense categories to optimize
-                2. Strategies to increase savings rate
-                3. Emergency fund recommendations
-                4. Investment opportunities for surplus funds
-                """
-                
-                if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
-                    ai_response = st.session_state.conversation_chain.invoke({"question": ai_prompt})
-                    st.markdown(f"**AI Advisor:** {ai_response.get('answer', 'Unable to generate AI insights at this time.')}")
-                else:
-                    st.info("💡 **Smart Tip:** With your current savings rate, consider automating transfers to a high-yield savings account and exploring low-cost index funds for long-term growth.")
-            except Exception as e:
-                st.info("💡 **Smart Tip:** Focus on the 50/30/20 rule - 50% needs, 30% wants, 20% savings. Your current analysis shows areas for improvement in expense optimization.")
+            # Store in session state for chat context
+            st.session_state.budget_data = budget_summary
     
     @staticmethod
     def investing_flow():
@@ -1254,7 +1242,10 @@ class FinancialFlows:
         # Initialize session state for form data
         if 'investment_form_submitted' not in st.session_state:
             st.session_state.investment_form_submitted = False
+        if 'investment_form_data' not in st.session_state:
+            st.session_state.investment_form_data = {}
         
+        # Create form
         with st.form("investment_form"):
             # Step 1: Investment Goals
             st.subheader("Step 1: Investment Goals & Timeline")
@@ -1274,28 +1265,35 @@ class FinancialFlows:
             # Step 2: Risk Assessment
             st.subheader("Step 2: Risk Tolerance Assessment")
             
+            risk_questions = {
+                "market_drop": "If your portfolio dropped 20% in a month, you would:",
+                "investment_experience": "Your investment experience level:",
+                "income_stability": "Your income stability:",
+                "sleep_factor": "Regarding investment volatility:"
+            }
+            
             risk_answers = {}
             
             risk_answers["market_drop"] = st.radio(
-                "If your portfolio dropped 20% in a month, you would:",
+                risk_questions["market_drop"],
                 ["Panic and sell everything", "Feel uncomfortable but hold", "See it as a buying opportunity"],
                 key="market_drop"
             )
             
             risk_answers["investment_experience"] = st.radio(
-                "Your investment experience level:",
+                risk_questions["investment_experience"],
                 ["Beginner (< 2 years)", "Intermediate (2-10 years)", "Advanced (> 10 years)"],
                 key="investment_experience"
             )
             
             risk_answers["income_stability"] = st.radio(
-                "Your income stability:",
+                risk_questions["income_stability"],
                 ["Unstable/Variable", "Stable", "Very Stable with Growth"],
                 key="income_stability"
             )
             
             risk_answers["sleep_factor"] = st.radio(
-                "Regarding investment volatility:",
+                risk_questions["sleep_factor"],
                 ["I need stable, predictable returns", "I can handle some ups and downs", "I'm comfortable with high volatility for higher returns"],
                 key="sleep_factor"
             )
@@ -1305,8 +1303,6 @@ class FinancialFlows:
         
         # Process form submission
         if submitted:
-            st.session_state.investment_form_submitted = True
-            
             # Calculate risk profile
             risk_score = 0
             risk_weights = {
@@ -1326,12 +1322,23 @@ class FinancialFlows:
             else:
                 risk_profile = "Aggressive"
             
-            st.info(f"Based on your responses, your risk profile is: **{risk_profile}**")
+            st.session_state.investment_form_submitted = True
+            st.session_state.investment_form_data = {
+                'risk_profile': risk_profile,
+                'time_horizon': time_horizon,
+                'investment_capital': investment_capital,
+                'current_age': current_age
+            }
+        
+        # Display results if form has been submitted
+        if st.session_state.investment_form_submitted and st.session_state.investment_form_data:
+            form_data = st.session_state.investment_form_data
+            
+            st.info(f"Based on your responses, your risk profile is: **{form_data['risk_profile']}**")
             
             allocation_data = FinancialCalculator.calculate_investment_allocation(
-                risk_profile, time_horizon, investment_capital, current_age
+                form_data['risk_profile'], form_data['time_horizon'], form_data['investment_capital'], form_data['current_age']
             )
-            st.session_state.investment_data = allocation_data
             
             # Display allocation summary
             st.subheader("Recommended Portfolio Allocation")
@@ -1387,69 +1394,42 @@ class FinancialFlows:
             investment_viz = FinancialVisualizer.plot_investment_allocation(allocation_data)
             st.plotly_chart(investment_viz, use_container_width=True)
             
-            # AI-Enhanced Suggestions
-            st.subheader("🤖 AI-Powered Investment Insights")
-            try:
-                ai_prompt = f"""
-                Based on this investment analysis:
-                - Risk Profile: {risk_profile}
-                - Time Horizon: {time_horizon} years
-                - Investment Capital: ${investment_capital:,.2f}
-                - Expected Return: {allocation_data["expected_annual_return"]:.1%}
-                - Asset Allocation: {allocation["stocks"]}% stocks, {allocation["bonds"]}% bonds, {allocation["cash"]}% cash
-                
-                Provide personalized advice on:
-                1. Specific investment vehicles (ETFs, mutual funds)
-                2. Diversification strategies
-                3. Tax-efficient investing approaches
-                4. Rebalancing recommendations
-                """
-                
-                if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
-                    ai_response = st.session_state.conversation_chain.invoke({"question": ai_prompt})
-                    st.markdown(f"**AI Advisor:** {ai_response.get('answer', 'Unable to generate AI insights at this time.')}")
-                else:
-                    st.info("💡 **Smart Tip:** Consider low-cost index funds like VTI (Total Stock Market) and BND (Total Bond Market) to match your allocation. Rebalance quarterly to maintain target percentages.")
-            except Exception as e:
-                st.info("💡 **Smart Tip:** Focus on low-cost, diversified index funds. Consider tax-advantaged accounts like 401(k) and IRA first, then taxable accounts for additional investments.")
+            # Store in session state
+            st.session_state.investment_data = allocation_data
     
     @staticmethod
     def debt_repayment_flow():
         """Interactive debt repayment planning flow"""
         st.markdown('<div class="flow-card"><h2>💳 Debt Freedom Planner</h2><p>Let\'s create a strategic plan to eliminate your debt efficiently.</p></div>', unsafe_allow_html=True)
         
-        # Initialize session state for debts
-        if 'debts' not in st.session_state:
-            st.session_state.debts = []
-        if 'debt_form_submitted' not in st.session_state:
-            st.session_state.debt_form_submitted = False
-        
         # Step 1: Debt Inventory
         st.subheader("Step 1: Your Current Debts")
         
+        if 'debts' not in st.session_state:
+            st.session_state.debts = []
+        
         # Add new debt form
         with st.expander("Add New Debt", expanded=len(st.session_state.debts) == 0):
-            with st.form("add_debt_form"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")
-                    debt_balance = st.number_input("Current Balance", min_value=0.0, step=100.0)
-                
-                with col2:
-                    interest_rate = st.number_input("Interest Rate (%)", min_value=0.0, max_value=50.0, step=0.1)
-                    minimum_payment = st.number_input("Minimum Monthly Payment", min_value=0.0, step=10.0)
-                
-                if st.form_submit_button("Add Debt"):
-                    if debt_name and debt_balance > 0:
-                        st.session_state.debts.append({
-                            'name': debt_name,
-                            'balance': debt_balance,
-                            'interest_rate': interest_rate,
-                            'minimum_payment': minimum_payment
-                        })
-                        st.success(f"Added {debt_name} to your debt list!")
-                        st.rerun()
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")
+                debt_balance = st.number_input("Current Balance", min_value=0.0, step=100.0)
+            
+            with col2:
+                interest_rate = st.number_input("Interest Rate (%)", min_value=0.0, max_value=50.0, step=0.1)
+                minimum_payment = st.number_input("Minimum Monthly Payment", min_value=0.0, step=10.0)
+            
+            if st.button("Add Debt"):
+                if debt_name and debt_balance > 0:
+                    st.session_state.debts.append({
+                        'name': debt_name,
+                        'balance': debt_balance,
+                        'interest_rate': interest_rate,
+                        'minimum_payment': minimum_payment
+                    })
+                    st.success(f"Added {debt_name} to your debt list!")
+                    st.rerun()
         
         # Display current debts
         if st.session_state.debts:
@@ -1467,11 +1447,19 @@ class FinancialFlows:
             if st.button("Clear All Debts"):
                 st.session_state.debts = []
                 st.rerun()
-            
-            # Step 2: Repayment Strategy
+        
+        # Step 2: Repayment Strategy
+        if st.session_state.debts:
             st.subheader("Step 2: Repayment Strategy")
             
-            with st.form("debt_strategy_form"):
+            # Initialize session state for debt form
+            if 'debt_form_submitted' not in st.session_state:
+                st.session_state.debt_form_submitted = False
+            if 'debt_form_data' not in st.session_state:
+                st.session_state.debt_form_data = {}
+            
+            # Create form
+            with st.form("debt_form"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -1490,8 +1478,15 @@ class FinancialFlows:
             # Process form submission
             if submitted:
                 st.session_state.debt_form_submitted = True
-                debt_analysis = FinancialCalculator.calculate_debt_payoff(st.session_state.debts, extra_payment, strategy)
-                st.session_state.debt_data = debt_analysis
+                st.session_state.debt_form_data = {
+                    'strategy': strategy,
+                    'extra_payment': extra_payment
+                }
+            
+            # Display results if form has been submitted
+            if st.session_state.debt_form_submitted and st.session_state.debt_form_data:
+                form_data = st.session_state.debt_form_data
+                debt_analysis = FinancialCalculator.calculate_debt_payoff(st.session_state.debts, form_data['extra_payment'], form_data['strategy'])
                 
                 # Summary metrics
                 col1, col2, col3, col4 = st.columns(4)
@@ -1513,7 +1508,7 @@ class FinancialFlows:
                     ''', unsafe_allow_html=True)
                 
                 with col3:
-                    if extra_payment > 0:
+                    if form_data['extra_payment'] > 0:
                         st.markdown(f'''
                         <div class="metric-card">
                             <h3>Interest Savings</h3>
@@ -1529,7 +1524,7 @@ class FinancialFlows:
                         ''', unsafe_allow_html=True)
                 
                 with col4:
-                    if extra_payment > 0:
+                    if form_data['extra_payment'] > 0:
                         st.markdown(f'''
                         <div class="metric-card">
                             <h3>Time Savings</h3>
@@ -1546,7 +1541,7 @@ class FinancialFlows:
                 
                 # Detailed payoff plan
                 st.subheader("Debt Payoff Priority Order")
-                scenario_key = 'with_extra' if extra_payment > 0 else 'minimum_only'
+                scenario_key = 'with_extra' if form_data['extra_payment'] > 0 else 'minimum_only'
                 payoff_plan = debt_analysis['scenarios'][scenario_key]['payoff_plan']
                 
                 plan_df = pd.DataFrame(payoff_plan)
@@ -1566,7 +1561,7 @@ class FinancialFlows:
                     <h3>Debt Payoff Recommendations</h3>
                     <ul>
                         <li>🎯 Focus on paying ${debt_analysis["recommended_extra_payment"]:.0f} extra per month if possible</li>
-                        <li>📊 You're using the <strong>{strategy.title()}</strong> method - {"pay highest interest rates first" if strategy == "avalanche" else "pay smallest balances first"}</li>
+                        <li>📊 You're using the <strong>{form_data["strategy"].title()}</strong> method - {"pay highest interest rates first" if form_data["strategy"] == "avalanche" else "pay smallest balances first"}</li>
                         <li>💡 Consider debt consolidation if you have high-interest credit cards</li>
                         <li>🚫 Avoid taking on new debt during your payoff journey</li>
                         <li>📱 Set up automatic payments to stay on track</li>
@@ -1579,31 +1574,8 @@ class FinancialFlows:
                 debt_viz = FinancialVisualizer.plot_debt_payoff(debt_analysis)
                 st.plotly_chart(debt_viz, use_container_width=True)
                 
-                # AI-Enhanced Suggestions
-                st.subheader("🤖 AI-Powered Debt Strategy")
-                try:
-                    ai_prompt = f"""
-                    Based on this debt analysis:
-                    - Total Debt: ${debt_analysis["total_debt"]:,.2f}
-                    - Strategy: {strategy.title()}
-                    - Extra Payment: ${extra_payment:.2f}
-                    - Interest Savings: ${debt_analysis["interest_savings"]:,.2f}
-                    - Time Savings: {debt_analysis["time_savings_months"]:.0f} months
-                    
-                    Provide personalized advice on:
-                    1. Debt consolidation opportunities
-                    2. Ways to find extra money for payments
-                    3. Psychological strategies to stay motivated
-                    4. Post-debt financial planning
-                    """
-                    
-                    if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
-                        ai_response = st.session_state.conversation_chain.invoke({"question": ai_prompt})
-                        st.markdown(f"**AI Advisor:** {ai_response.get('answer', 'Unable to generate AI insights at this time.')}")
-                    else:
-                        st.info("💡 **Smart Tip:** Consider the debt avalanche method for maximum interest savings, or snowball method for psychological wins. Automate payments and celebrate milestones to stay motivated.")
-                except Exception as e:
-                    st.info("💡 **Smart Tip:** Focus on one debt at a time while paying minimums on others. Consider side income or expense cuts to accelerate payoff. Celebrate each debt elimination!")
+                # Store in session state
+                st.session_state.debt_data = debt_analysis
     
     @staticmethod
     def retirement_planning_flow():
@@ -1613,7 +1585,10 @@ class FinancialFlows:
         # Initialize session state for form data
         if 'retirement_form_submitted' not in st.session_state:
             st.session_state.retirement_form_submitted = False
+        if 'retirement_form_data' not in st.session_state:
+            st.session_state.retirement_form_data = {}
         
+        # Create form
         with st.form("retirement_form"):
             # Step 1: Current Situation
             st.subheader("Step 1: Current Financial Situation")
@@ -1637,6 +1612,12 @@ class FinancialFlows:
                 ["Basic (60% of current income)", "Comfortable (80% of current income)", "Luxurious (100% of current income)"]
             )
             
+            replacement_ratios = {
+                "Basic (60% of current income)": 0.60,
+                "Comfortable (80% of current income)": 0.80,
+                "Luxurious (100% of current income)": 1.00
+            }
+            
             # Additional considerations
             col1, col2 = st.columns(2)
             
@@ -1654,11 +1635,23 @@ class FinancialFlows:
         # Process form submission
         if submitted:
             st.session_state.retirement_form_submitted = True
-            total_monthly_contribution = monthly_contribution + employer_match
+            st.session_state.retirement_form_data = {
+                'current_age': current_age,
+                'retirement_age': retirement_age,
+                'current_income': current_income,
+                'current_savings': current_savings,
+                'monthly_contribution': monthly_contribution,
+                'employer_match': employer_match
+            }
+        
+        # Display results if form has been submitted
+        if st.session_state.retirement_form_submitted and st.session_state.retirement_form_data:
+            form_data = st.session_state.retirement_form_data
+            total_monthly_contribution = form_data['monthly_contribution'] + form_data['employer_match']
             retirement_analysis = FinancialCalculator.calculate_retirement_needs(
-                current_age, retirement_age, current_income, current_savings, total_monthly_contribution
+                form_data['current_age'], form_data['retirement_age'], form_data['current_income'], 
+                form_data['current_savings'], total_monthly_contribution
             )
-            st.session_state.retirement_data = retirement_analysis
             
             # Key metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -1721,35 +1714,23 @@ class FinancialFlows:
             
             st.dataframe(scenario_df, use_container_width=True)
             
-            # Fixed Retirement Recommendations
-            st.subheader("Retirement Planning Recommendations")
-            
-            # Calculate the correct recommendation
-            required_contribution = retirement_analysis["required_monthly_contribution"]
-            current_contribution = total_monthly_contribution
-            
-            if required_contribution > current_contribution:
-                increase_needed = required_contribution - current_contribution
-                recommendation_text = f"💰 Increase monthly contributions by ${increase_needed:.0f}"
-                recommendation_color = "orange"
-            else:
-                recommendation_text = "🎉 You are already on track, no increase needed"
-                recommendation_color = "green"
-            
+            # Recommendations
             st.markdown(f'''
             <div class="summary-card">
-                <h3>Primary Recommendation</h3>
-                <h4 style="color: {recommendation_color}">{recommendation_text}</h4>
-                <h4>Additional Recommendations:</h4>
+                <h3>Retirement Planning Recommendations</h3>
                 <ul>
-                    {"".join(f"<li>{rec}</li>" for rec in retirement_analysis["recommendations"][1:] if len(retirement_analysis["recommendations"]) > 1)}
+                    {"".join(f"<li>{rec}</li>" for rec in retirement_analysis["recommendations"])}
                 </ul>
             </div>
             ''', unsafe_allow_html=True)
             
             # Action items
             if gap > 0:
-                st.warning(f"⚠️ To meet your retirement goal, consider the recommendations above.")
+                required_increase = retirement_analysis["required_monthly_contribution"] - total_monthly_contribution
+                if required_increase > 0:
+                    st.warning(f"⚠️ To meet your retirement goal, consider increasing your monthly contribution by ${required_increase:.0f}")
+                else:
+                    st.success("🎉 You are already on track, no increase needed")
             else:
                 st.success("🎉 Congratulations! You're on track to meet your retirement goals!")
             
@@ -1758,34 +1739,8 @@ class FinancialFlows:
             retirement_viz = FinancialVisualizer.plot_retirement_projections(retirement_analysis)
             st.plotly_chart(retirement_viz, use_container_width=True)
             
-            # AI-Enhanced Suggestions
-            st.subheader("🤖 AI-Powered Retirement Insights")
-            try:
-                ai_prompt = f"""
-                Based on this retirement analysis:
-                - Current Age: {current_age}
-                - Retirement Age: {retirement_age}
-                - Years to Retirement: {retirement_analysis["years_to_retirement"]}
-                - Current Savings: ${current_savings:,.2f}
-                - Monthly Contribution: ${total_monthly_contribution:.2f}
-                - Retirement Gap: ${gap:,.2f}
-                - Required Monthly Contribution: ${required_contribution:.2f}
-                
-                Provide personalized advice on:
-                1. Tax-advantaged retirement account strategies
-                2. Catch-up contribution opportunities
-                3. Social Security optimization
-                4. Healthcare cost planning
-                5. Estate planning considerations
-                """
-                
-                if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
-                    ai_response = st.session_state.conversation_chain.invoke({"question": ai_prompt})
-                    st.markdown(f"**AI Advisor:** {ai_response.get('answer', 'Unable to generate AI insights at this time.')}")
-                else:
-                    st.info("💡 **Smart Tip:** Maximize employer 401(k) matching first, then consider Roth IRA for tax-free growth. If over 50, take advantage of catch-up contributions. Consider target-date funds for automatic rebalancing.")
-            except Exception as e:
-                st.info("💡 **Smart Tip:** Start with employer 401(k) matching, then max out IRA contributions. Consider increasing contributions by 1% annually. Review and rebalance your portfolio quarterly.")
+            # Store in session state
+            st.session_state.retirement_data = retirement_analysis
 
 class PersonaManager:
     """Manage different financial advisor personas"""
