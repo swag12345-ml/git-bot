@@ -15,3 +15,19 @@ matplotlib           # For expense and portfolio visualizations
 pillow
 sentence-transformers  # Required for HuggingFaceEmbeddings
 pytesseract
+streamlit
+python-dotenv
+PyMuPDF
+easyocr
+pdf2image
+langchain
+langchain-community
+langchain-text-splitters
+langchain-huggingface
+langchain-groq
+faiss-cpu
+torch
+numpy
+pandas
+plotly
+asyncio
