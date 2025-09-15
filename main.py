@@ -119,7 +119,11 @@ if not groq_api_key:
     st.stop()
 
 # Initialize EasyOCR with GPU support
-reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available())
+try:
+    reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available())
+except Exception as e:
+    st.warning(f"EasyOCR initialization failed: {e}. OCR features will be limited.")
+    reader = None
 
 class FinancialCalculator:
     """Core financial calculation functions with advanced analytics"""
@@ -268,18 +272,48 @@ class FinancialCalculator:
     
     @staticmethod
     def calculate_debt_payoff(debts: List[Dict], extra_payment: float = 0, strategy: str = 'avalanche') -> Dict[str, Any]:
-        """Calculate comprehensive debt payoff strategy with multiple scenarios"""
+        """Calculate comprehensive debt payoff strategy with multiple scenarios - FIXED VERSION"""
         if not debts:
             return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0}
         
-        total_debt = sum(debt['balance'] for debt in debts)
-        total_minimum = sum(debt['minimum_payment'] for debt in debts)
+        # Validate and clean debt data
+        valid_debts = []
+        for debt in debts:
+            try:
+                balance = float(debt.get('balance', 0))
+                interest_rate = float(debt.get('interest_rate', 0))
+                minimum_payment = float(debt.get('minimum_payment', 0))
+                
+                # Skip debts with invalid data
+                if balance <= 0 or minimum_payment <= 0:
+                    continue
+                    
+                # Ensure minimum payment can actually pay off the debt
+                monthly_interest = balance * (interest_rate / 100 / 12)
+                if minimum_payment <= monthly_interest and interest_rate > 0:
+                    # Adjust minimum payment to be slightly higher than monthly interest
+                    minimum_payment = monthly_interest * 1.1 + 10
+                
+                valid_debts.append({
+                    'name': debt.get('name', 'Unknown Debt'),
+                    'balance': balance,
+                    'interest_rate': interest_rate,
+                    'minimum_payment': minimum_payment
+                })
+            except (ValueError, TypeError):
+                continue
+        
+        if not valid_debts:
+            return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0}
+        
+        total_debt = sum(debt['balance'] for debt in valid_debts)
+        total_minimum = sum(debt['minimum_payment'] for debt in valid_debts)
         
         # Sort debts based on strategy
         if strategy == 'avalanche':
-            sorted_debts = sorted(debts, key=lambda x: x['interest_rate'], reverse=True)
+            sorted_debts = sorted(valid_debts, key=lambda x: x['interest_rate'], reverse=True)
         else:  # snowball
-            sorted_debts = sorted(debts, key=lambda x: x['balance'])
+            sorted_debts = sorted(valid_debts, key=lambda x: x['balance'])
         
         # Calculate payoff scenarios
         scenarios = {}
@@ -293,20 +327,32 @@ class FinancialCalculator:
                 if scenario_name == 'with_extra' and i == 0:  # Apply extra to first debt
                     monthly_payment += extra
                 
-                if monthly_payment <= 0:
-                    continue
-                    
-                # Calculate months to payoff using amortization formula
                 balance = debt['balance']
                 rate = debt['interest_rate'] / 100 / 12
                 
-                if rate > 0:
-                    months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
-                else:
-                    months = balance / monthly_payment
+                try:
+                    if rate > 0 and rate < 1:  # Valid interest rate
+                        # Amortization formula
+                        if monthly_payment > balance * rate:  # Payment covers interest
+                            months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
+                        else:
+                            # Payment doesn't cover interest - use simple calculation
+                            months = balance / (monthly_payment - balance * rate) if monthly_payment > balance * rate else 999
+                    else:
+                        # No interest or invalid rate
+                        months = balance / monthly_payment if monthly_payment > 0 else 999
+                    
+                    # Validate and clean the months calculation
+                    if not np.isfinite(months) or months <= 0 or np.isnan(months):
+                        months = max(1, balance / monthly_payment) if monthly_payment > 0 else 999
+                    
+                    months = max(1, min(999, int(np.ceil(months))))  # Cap at reasonable maximum
+                    
+                except (ValueError, ZeroDivisionError, OverflowError):
+                    # Fallback calculation
+                    months = max(1, int(balance / monthly_payment)) if monthly_payment > 0 else 999
                 
-                months = max(1, int(np.ceil(months)))
-                interest_paid = (monthly_payment * months) - balance
+                interest_paid = max(0, (monthly_payment * months) - balance)
                 total_interest += interest_paid
                 cumulative_months = max(cumulative_months, months)
                 
@@ -328,8 +374,8 @@ class FinancialCalculator:
             }
         
         # Calculate savings from extra payments
-        interest_savings = scenarios['minimum_only']['total_interest'] - scenarios['with_extra']['total_interest']
-        time_savings = scenarios['minimum_only']['total_months'] - scenarios['with_extra']['total_months']
+        interest_savings = max(0, scenarios['minimum_only']['total_interest'] - scenarios['with_extra']['total_interest'])
+        time_savings = max(0, scenarios['minimum_only']['total_months'] - scenarios['with_extra']['total_months'])
         
         return {
             'total_debt': total_debt,
@@ -345,7 +391,7 @@ class FinancialCalculator:
     def calculate_retirement_needs(current_age: int, retirement_age: int, current_income: float, 
                                  current_savings: float, monthly_contribution: float) -> Dict[str, Any]:
         """Calculate comprehensive retirement planning with multiple scenarios"""
-        years_to_retirement = retirement_age - current_age
+        years_to_retirement = max(1, retirement_age - current_age)
         annual_contribution = monthly_contribution * 12
         
         # Assumptions
@@ -353,7 +399,7 @@ class FinancialCalculator:
         investment_return = 0.07
         replacement_ratio = 0.80  # 80% of current income needed
         life_expectancy = 85
-        retirement_years = life_expectancy - retirement_age
+        retirement_years = max(1, life_expectancy - retirement_age)
         
         # Calculate future income needed (adjusted for inflation)
         future_income_needed = current_income * ((1 + inflation_rate) ** years_to_retirement)
@@ -361,10 +407,13 @@ class FinancialCalculator:
         
         # Calculate total retirement corpus needed
         # Using present value of annuity formula for retirement years
-        retirement_corpus_needed = annual_retirement_need * (
-            (1 - (1 + investment_return - inflation_rate) ** -retirement_years) / 
-            (investment_return - inflation_rate)
-        )
+        real_return = investment_return - inflation_rate
+        if real_return > 0:
+            retirement_corpus_needed = annual_retirement_need * (
+                (1 - (1 + real_return) ** -retirement_years) / real_return
+            )
+        else:
+            retirement_corpus_needed = annual_retirement_need * retirement_years
         
         # Future value of current savings
         future_current_savings = current_savings * ((1 + investment_return) ** years_to_retirement)
@@ -384,9 +433,12 @@ class FinancialCalculator:
         
         # Calculate required monthly contribution to meet goal
         if retirement_gap > 0 and years_to_retirement > 0:
-            required_annual_contribution = retirement_gap / (
-                ((1 + investment_return) ** years_to_retirement - 1) / investment_return
-            ) if investment_return > 0 else retirement_gap / years_to_retirement
+            if investment_return > 0:
+                required_annual_contribution = retirement_gap / (
+                    ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+                )
+            else:
+                required_annual_contribution = retirement_gap / years_to_retirement
             
             required_monthly_contribution = required_annual_contribution / 12
         else:
@@ -398,17 +450,28 @@ class FinancialCalculator:
             scenario_monthly = monthly_contribution * contribution_multiplier
             scenario_annual = scenario_monthly * 12
             
-            scenario_future_contributions = scenario_annual * (
-                ((1 + investment_return) ** years_to_retirement - 1) / investment_return
-            ) if investment_return > 0 else scenario_annual * years_to_retirement
+            if investment_return > 0:
+                scenario_future_contributions = scenario_annual * (
+                    ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+                )
+            else:
+                scenario_future_contributions = scenario_annual * years_to_retirement
             
             scenario_total = future_current_savings + scenario_future_contributions
+            
+            # Calculate monthly retirement income
+            if real_return > 0:
+                monthly_retirement_income = (scenario_total * real_return) / 12
+            else:
+                monthly_retirement_income = scenario_total / (retirement_years * 12)
+            
+            replacement_ratio_achieved = (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0
             
             scenarios[scenario_name] = {
                 'monthly_contribution': scenario_monthly,
                 'projected_total': scenario_total,
-                'monthly_retirement_income': (scenario_total * (investment_return - inflation_rate)) / 12,
-                'replacement_ratio_achieved': (scenario_total * (investment_return - inflation_rate)) / future_income_needed
+                'monthly_retirement_income': monthly_retirement_income,
+                'replacement_ratio_achieved': replacement_ratio_achieved
             }
         
         return {
@@ -433,7 +496,8 @@ class FinancialCalculator:
         recommendations = []
         
         if gap > 0:
-            recommendations.append(f"💰 Increase monthly contributions by ${required_contrib - current_contrib:.0f}")
+            increase_needed = max(0, required_contrib - current_contrib)
+            recommendations.append(f"💰 Increase monthly contributions by ${increase_needed:.0f}")
             
         if years_left > 30:
             recommendations.append("📈 Consider more aggressive investments for long-term growth")
@@ -454,9 +518,17 @@ class FinancialVisualizer:
     @staticmethod
     def plot_expense_breakdown(expenses: Dict[str, float], title: str = "Expense Breakdown") -> go.Figure:
         """Create an interactive pie chart for expense breakdown"""
+        # Filter out zero expenses
+        filtered_expenses = {k: v for k, v in expenses.items() if v > 0}
+        
+        if not filtered_expenses:
+            fig = go.Figure()
+            fig.add_annotation(text="No expense data available", x=0.5, y=0.5, showarrow=False)
+            return fig
+        
         fig = px.pie(
-            values=list(expenses.values()),
-            names=list(expenses.keys()),
+            values=list(filtered_expenses.values()),
+            names=list(filtered_expenses.keys()),
             title=title,
             color_discrete_sequence=px.colors.qualitative.Set3
         )
@@ -521,14 +593,16 @@ class FinancialVisualizer:
         )
         
         # Expense breakdown pie
-        fig.add_trace(
-            go.Pie(
-                labels=list(budget_data['expense_breakdown'].keys()),
-                values=list(budget_data['expense_breakdown'].values()),
-                name="Expenses"
-            ),
-            row=2, col=1
-        )
+        filtered_expenses = {k: v for k, v in budget_data['expense_breakdown'].items() if v > 0}
+        if filtered_expenses:
+            fig.add_trace(
+                go.Pie(
+                    labels=list(filtered_expenses.keys()),
+                    values=list(filtered_expenses.values()),
+                    name="Expenses"
+                ),
+                row=2, col=1
+            )
         
         # Financial health indicator
         health_score = {'Excellent': 100, 'Good': 75, 'Fair': 50, 'Critical': 25}
@@ -637,7 +711,9 @@ class FinancialVisualizer:
         scenarios = debt_data.get('scenarios', {})
         
         if not scenarios:
-            return go.Figure()
+            fig = go.Figure()
+            fig.add_annotation(text="No debt data available", x=0.5, y=0.5, showarrow=False)
+            return fig
         
         fig = make_subplots(
             rows=2, cols=2,
@@ -732,7 +808,7 @@ class FinancialVisualizer:
         
         for year in years:
             future_current = current_savings * ((1.07) ** year)
-            future_contributions = monthly_contribution * 12 * year * ((1.07) ** (year/2))
+            future_contributions = monthly_contribution * 12 * year * ((1.07) ** (year/2)) if year > 0 else 0
             growth_values.append(future_current + future_contributions)
         
         fig.add_trace(
@@ -1374,6 +1450,10 @@ def extract_text_from_pdf(file_path):
 
 def extract_text_from_images(pdf_path):
     """Extracts text from image-based PDFs using GPU-accelerated EasyOCR."""
+    if reader is None:
+        st.error("OCR reader not available")
+        return []
+    
     try:
         images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
         return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
@@ -1383,30 +1463,38 @@ def extract_text_from_images(pdf_path):
 
 def setup_vectorstore(documents):
     """Creates a FAISS vector store using Hugging Face embeddings."""
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    
-    if DEVICE == "cuda":
-        embeddings.model = embeddings.model.to(torch.device("cuda"))
-    
-    text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-    doc_chunks = text_splitter.split_text("\n".join(documents))
-    return FAISS.from_texts(doc_chunks, embeddings)
+    try:
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        
+        if DEVICE == "cuda":
+            embeddings.model = embeddings.model.to(torch.device("cuda"))
+        
+        text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        doc_chunks = text_splitter.split_text("\n".join(documents))
+        return FAISS.from_texts(doc_chunks, embeddings)
+    except Exception as e:
+        st.error(f"Error setting up vector store: {e}")
+        return None
 
 def create_chain(vectorstore):
     """Creates the chat chain with optimized retriever settings."""
-    if "memory" not in st.session_state:
-        st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    try:
+        if "memory" not in st.session_state:
+            st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, groq_api_key=groq_api_key)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-    
-    return ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=retriever,
-        chain_type="stuff",
-        memory=st.session_state.memory,
-        verbose=False
-    )
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, groq_api_key=groq_api_key)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        
+        return ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=retriever,
+            chain_type="stuff",
+            memory=st.session_state.memory,
+            verbose=False
+        )
+    except Exception as e:
+        st.error(f"Error creating conversation chain: {e}")
+        return None
 
 def get_fallback_response(user_input: str, persona: str) -> str:
     """Rule-based fallback responses when LLM is unavailable"""
@@ -1460,7 +1548,7 @@ def get_fallback_response(user_input: str, persona: str) -> str:
 async def get_response(user_input, persona_info):
     """Get response from LLM or fallback system"""
     try:
-        if "conversation_chain" in st.session_state:
+        if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
             # Enhance prompt with persona and financial context
             enhanced_prompt = f"""
             You are a {persona_info['description']} financial advisor. {persona_info['style']}
@@ -1548,9 +1636,17 @@ def main():
                 st.sidebar.error(f"⚠️ Error processing {uploaded_file.name}: {e}")
 
         if all_extracted_text:
-            st.session_state.vectorstore = setup_vectorstore(all_extracted_text)
-            st.session_state.conversation_chain = create_chain(st.session_state.vectorstore)
-            st.sidebar.info("📚 Documents ready for analysis!")
+            vectorstore = setup_vectorstore(all_extracted_text)
+            if vectorstore:
+                st.session_state.vectorstore = vectorstore
+                conversation_chain = create_chain(vectorstore)
+                if conversation_chain:
+                    st.session_state.conversation_chain = conversation_chain
+                    st.sidebar.info("📚 Documents ready for analysis!")
+                else:
+                    st.sidebar.warning("⚠️ Could not create conversation chain")
+            else:
+                st.sidebar.warning("⚠️ Could not process documents")
     
     # Main content area
     if selected_flow == "Smart Budgeting":
