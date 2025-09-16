@@ -98,6 +98,25 @@ if not TEST_MODE:
             color: #d1d5db !important;
         }
         
+        /* AI Suggestions Card */
+        .ai-suggestions-card {
+            background: linear-gradient(135deg, #581c87 0%, #7c3aed 100%);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border-left: 5px solid #a78bfa;
+            margin: 1rem 0;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            color: #ffffff;
+            border: 1px solid #7c3aed;
+        }
+        .ai-suggestions-card h3, .ai-suggestions-card h4 {
+            color: #ffffff !important;
+        }
+        .ai-suggestions-card p, .ai-suggestions-card ul li {
+            color: #e9d5ff !important;
+            margin-bottom: 0.5rem;
+        }
+        
         /* Dark chat messages */
         .chat-message {
             padding: 1.2rem;
@@ -149,24 +168,6 @@ if not TEST_MODE:
         }
         .summary-card ul li {
             color: #d1d5db !important;
-            margin-bottom: 0.5rem;
-        }
-        
-        /* AI suggestions styling */
-        .ai-suggestions-card {
-            background: linear-gradient(135deg, #2d1b69 0%, #5b21b6 100%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            margin: 1rem 0;
-            border-left: 5px solid #a855f7;
-            color: #ffffff;
-            border: 1px solid #7c3aed;
-        }
-        .ai-suggestions-card h3, .ai-suggestions-card h4 {
-            color: #ffffff !important;
-        }
-        .ai-suggestions-card ul li {
-            color: #e9d5ff !important;
             margin-bottom: 0.5rem;
         }
         
@@ -343,141 +344,186 @@ def load_groq_api_key():
         return os.getenv("GROQ_API_KEY")
 
 groq_api_key = load_groq_api_key() if not TEST_MODE else "test_key"
-if not groq_api_key and not TEST_MODE:
-    st.error("🚨 GROQ_API_KEY is missing. Check your config.json file or environment variables.")
-    st.stop()
 
-# AI INJECTION: Initialize ChatGroq client for AI-enhanced recommendations
-def initialize_ai_client():
-    """Initialize ChatGroq client for AI insights"""
-    if TEST_MODE or not groq_api_key:
-        return None
-    
-    try:
-        return ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.3,
-            groq_api_key=groq_api_key,
-            max_tokens=1000
-        )
-    except Exception as e:
-        if not TEST_MODE:
-            st.warning(f"AI service unavailable: {e}")
-        return None
-
-# AI INJECTION: Centralized AI insights generation function
-def generate_ai_insights(data: dict, context_label: str) -> dict:
+# AI INJECTION: Centralized AI helper function for LLM calls
+def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, Any]:
     """
-    Generate AI-enhanced insights using LLaMA 3.3 via Groq
-    
-    Args:
-        data: Financial data dictionary to analyze
-        context_label: Context label (e.g., "Budget Analysis", "Investment Planning")
-    
-    Returns:
-        Dictionary with ai_score, ai_reasoning, ai_recommendations
+    Centralized AI insights generator using LLaMA 3.3 via Groq.
+    Returns AI score (0-100), reasoning, and recommendations in JSON format.
+    Falls back gracefully when GROQ API key is missing or LLM call fails.
     """
-    # Fallback response structure
+    # Fallback response for when AI is not available
     fallback_response = {
         "ai_score": None,
-        "ai_reasoning": "AI not available - showing deterministic fallback.",
-        "ai_recommendations": ["AI analysis unavailable - using standard recommendations."]
+        "ai_reasoning": "AI analysis not available - using deterministic fallback.",
+        "ai_recommendations": [
+            "Review your financial data and look for improvement opportunities",
+            "Consider consulting with a financial professional for personalized advice",
+            "Use the built-in calculators and metrics for guidance"
+        ]
     }
     
-    if TEST_MODE or not groq_api_key:
+    if not groq_api_key or TEST_MODE:
         return fallback_response
     
     try:
-        client = initialize_ai_client()
-        if not client:
-            return fallback_response
+        # Initialize ChatGroq client
+        llm = ChatGroq(
+            model="llama-3.3-70b-versatile", 
+            temperature=0.3,  # Conservative temperature for consistent results
+            groq_api_key=groq_api_key
+        )
         
-        # Create context-specific prompt
+        # Create context-specific prompts
         if context_label == "Budget Analysis":
-            prompt = f"""You are an expert, friendly financial advisor analyzing a budget. 
+            prompt = f"""
+            You are an expert financial advisor. Analyze this budget data and provide insights.
             
-Input JSON: {json.dumps(data, indent=2)}
-
-Tasks:
-- Provide a Financial Health Score (0-100) based on savings rate, expense ratios, and overall financial balance
-- One-line reasoning explaining the score (2-3 sentences max)
-- 3-5 concise, prioritized recommendations the user can take today to improve their financial health
-
-Output ONLY valid JSON object with keys: ai_score, ai_reasoning, ai_recommendations (array)"""
-
+            Budget Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide a Financial Health Score (0-100) where 0 is critical and 100 is excellent
+            2. Give a brief 2-3 sentence reasoning for the score
+            3. Provide 3-5 concise, actionable recommendations the user can implement today
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            
+            Example format:
+            {{"ai_score": 75, "ai_reasoning": "Good savings rate but high housing costs limit flexibility.", "ai_recommendations": ["Reduce housing costs", "Increase emergency fund", "Track discretionary spending"]}}
+            """
+            
         elif context_label == "Investment Analysis":
-            prompt = f"""You are an expert investment advisor analyzing a portfolio allocation.
-
-Input JSON: {json.dumps(data, indent=2)}
-
-Tasks:
-- Provide an AI Risk Score (0-100) where 0=very conservative, 100=very aggressive
-- Brief risk explanation and portfolio assessment (2-3 sentences)
-- 3-5 specific investment strategy suggestions (general fund types, not specific products)
-
-Output ONLY valid JSON object with keys: ai_score, ai_reasoning, ai_recommendations (array)"""
-
+            prompt = f"""
+            You are an expert investment advisor. Analyze this portfolio data and provide insights.
+            
+            Investment Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide an Investment Risk Score (0-100) where 0 is very conservative and 100 is very aggressive
+            2. Give a brief 2-3 sentence explanation of the risk level and portfolio suitability
+            3. Provide 3-5 specific portfolio improvement suggestions (general types like "low-cost index funds", no specific products)
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            """
+            
         elif context_label == "Debt Analysis":
-            prompt = f"""You are an expert debt counselor analyzing a debt situation.
-
-Input JSON: {json.dumps(data, indent=2)}
-
-Tasks:
-- Provide a Debt Health Score (0-100) where 0=critical debt situation, 100=excellent debt management
-- Brief assessment of debt situation and strategy (2-3 sentences)
-- 3-5 prioritized debt management actions (refinance, consolidate, payment strategies)
-
-Output ONLY valid JSON object with keys: ai_score, ai_reasoning, ai_recommendations (array)"""
-
+            prompt = f"""
+            You are an expert debt counselor. Analyze this debt situation and provide insights.
+            
+            Debt Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide a Debt Health Score (0-100) where 0 is critical debt situation and 100 is debt-free/healthy
+            2. Give a brief 2-3 sentence assessment of the debt situation
+            3. Provide 3-5 prioritized actionable steps to improve the debt situation
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            """
+            
         elif context_label == "Retirement Analysis":
-            prompt = f"""You are an expert retirement planner analyzing retirement readiness.
-
-Input JSON: {json.dumps(data, indent=2)}
-
-Tasks:
-- Provide a Retirement Readiness Index (0-100) based on current savings, gap, and timeline
-- Brief retirement readiness assessment (2-3 sentences)
-- 3-5 specific retirement planning recommendations (contribution adjustments, strategies)
-
-Output ONLY valid JSON object with keys: ai_score, ai_reasoning, ai_recommendations (array)"""
-
+            prompt = f"""
+            You are an expert retirement planner. Analyze this retirement planning data and provide insights.
+            
+            Retirement Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide a Retirement Readiness Index (0-100) where 0 is completely unprepared and 100 is fully prepared
+            2. Give a brief 2-3 sentence assessment of retirement readiness
+            3. Provide 3-5 specific actions to improve retirement preparedness
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            """
+            
         else:
             return fallback_response
         
-        # Make API call to LLaMA 3.3
-        response = client.invoke(prompt)
-        
-        # Parse response - handle potential text formatting issues
+        # Call LLM
+        response = llm.invoke(prompt)
         response_text = response.content.strip()
         
-        # Try to extract JSON from response
+        # Parse JSON response with error handling
         try:
-            # Look for JSON object in response
-            start_idx = response_text.find('{')
-            end_idx = response_text.rfind('}') + 1
+            # Try to find JSON in the response
+            if response_text.startswith("{") and response_text.endswith("}"):
+                ai_result = json.loads(response_text)
+            else:
+                # Try to extract JSON from text
+                import re
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    ai_result = json.loads(json_match.group())
+                else:
+                    return fallback_response
             
-            if start_idx >= 0 and end_idx > start_idx:
-                json_str = response_text[start_idx:end_idx]
-                parsed_response = json.loads(json_str)
-                
-                # Validate response structure
-                if all(key in parsed_response for key in ['ai_score', 'ai_reasoning', 'ai_recommendations']):
-                    # Ensure score is within valid range
-                    if parsed_response['ai_score'] is not None:
-                        parsed_response['ai_score'] = max(0, min(100, parsed_response['ai_score']))
-                    
-                    return parsed_response
+            # Validate response structure
+            required_keys = ["ai_score", "ai_reasoning", "ai_recommendations"]
+            if not all(key in ai_result for key in required_keys):
+                return fallback_response
             
-            # If JSON parsing failed, return fallback
-            return fallback_response
+            # Validate ai_score is a number between 0-100
+            if ai_result["ai_score"] is not None:
+                ai_result["ai_score"] = max(0, min(100, float(ai_result["ai_score"])))
             
-        except json.JSONDecodeError:
+            # Ensure recommendations is a list
+            if not isinstance(ai_result["ai_recommendations"], list):
+                ai_result["ai_recommendations"] = [str(ai_result["ai_recommendations"])]
+            
+            return ai_result
+            
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
             return fallback_response
     
     except Exception as e:
+        # Log error in non-test mode
         if not TEST_MODE:
-            print(f"AI insights generation failed: {e}")
+            st.warning(f"AI analysis temporarily unavailable: {str(e)}")
         return fallback_response
+
+# AI INJECTION: Helper function to display AI suggestions consistently
+def display_ai_suggestions(ai_insights: Dict[str, Any], context_label: str):
+    """Display AI suggestions in a consistent format across all flows"""
+    if TEST_MODE:
+        return
+    
+    ai_score = ai_insights.get("ai_score")
+    ai_reasoning = ai_insights.get("ai_reasoning", "")
+    ai_recommendations = ai_insights.get("ai_recommendations", [])
+    
+    # Display AI suggestions card
+    st.markdown("### 🤖 AI Suggestions")
+    
+    # AI Score display
+    if ai_score is not None:
+        score_color = "#ef4444" if ai_score < 30 else "#f59e0b" if ai_score < 60 else "#10b981"
+        st.markdown(f'''
+        <div class="ai-suggestions-card">
+            <h4>AI {context_label.split()[0]} Score: {ai_score}/100</h4>
+            <p><strong>Analysis:</strong> {ai_reasoning}</p>
+            <h4>Personalized Recommendations:</h4>
+            <ul>
+                {"".join(f"<li>{rec}</li>" for rec in ai_recommendations)}
+            </ul>
+        </div>
+        ''', unsafe_allow_html=True)
+    else:
+        st.markdown(f'''
+        <div class="ai-suggestions-card">
+            <h4>AI Analysis</h4>
+            <p><strong>Note:</strong> {ai_reasoning}</p>
+            <h4>General Recommendations:</h4>
+            <ul>
+                {"".join(f"<li>{rec}</li>" for rec in ai_recommendations)}
+            </ul>
+        </div>
+        ''', unsafe_allow_html=True)
+
+if not groq_api_key and not TEST_MODE:
+    st.error("🚨 GROQ_API_KEY is missing. Check your config.json file or environment variables.")
+    st.warning("💡 AI features will use deterministic fallback mode.")
 
 # Initialize EasyOCR with GPU support
 reader = None
@@ -1435,11 +1481,7 @@ class FinancialFlows:
             budget_summary = FinancialCalculator.calculate_budget_summary(form_data['total_income'], form_data['expenses'])
             
             # AI INJECTION: Generate AI insights for budget analysis
-            if not TEST_MODE:
-                with st.spinner("🤖 Generating AI insights..."):
-                    ai_insights = generate_ai_insights(budget_summary, "Budget Analysis")
-            else:
-                ai_insights = {"ai_score": 75, "ai_reasoning": "Test AI reasoning", "ai_recommendations": ["Test recommendation"]}
+            ai_insights = generate_ai_insights(budget_summary, "Budget Analysis")
             
             if not TEST_MODE:
                 # Display summary cards
@@ -1470,43 +1512,37 @@ class FinancialFlows:
                     ''', unsafe_allow_html=True)
                 
                 with col4:
-                    # AI INJECTION: Use AI score if available, fallback to original score
-                    display_score = ai_insights.get("ai_score", budget_summary["health_score"])
-                    score_label = f"AI Score: {display_score}" if ai_insights.get("ai_score") else f"Score: {budget_summary['health_score']}"
-                    
-                    st.markdown(f'''
-                    <div class="metric-card">
-                        <h3>Savings Rate</h3>
-                        <h2 style="color: {budget_summary["health_color"]}">{budget_summary["savings_rate"]:.1f}%</h2>
-                        <p>{score_label}/100</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    # AI INJECTION: Display AI-enhanced health score alongside original
+                    ai_score = ai_insights.get("ai_score")
+                    if ai_score is not None:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>AI Health Score</h3>
+                            <h2 style="color: {budget_summary["health_color"]}">{ai_score}/100</h2>
+                            <p>System: {budget_summary["health_score"]}/100</p>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>Savings Rate</h3>
+                            <h2 style="color: {budget_summary["health_color"]}">{budget_summary["savings_rate"]:.1f}%</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
                 
                 # Financial Health Assessment
                 st.markdown(f'''
                 <div class="summary-card">
                     <h3>Financial Health: {budget_summary["financial_health"]} (Score: {budget_summary["health_score"]}/100)</h3>
-                    <h4>Standard Recommendations:</h4>
+                    <h4>Personalized Recommendations:</h4>
                     <ul>
                         {"".join(f"<li>{rec}</li>" for rec in budget_summary["recommendations"])}
                     </ul>
                 </div>
                 ''', unsafe_allow_html=True)
                 
-                # AI INJECTION: Display AI suggestions section
-                if ai_insights.get("ai_recommendations") and ai_insights["ai_recommendations"][0] != "AI analysis unavailable - using standard recommendations.":
-                    st.markdown(f'''
-                    <div class="ai-suggestions-card">
-                        <h3>🤖 AI Suggestions</h3>
-                        <p><strong>AI Reasoning:</strong> {ai_insights.get("ai_reasoning", "AI analysis not available")}</p>
-                        <h4>Personalized AI Recommendations:</h4>
-                        <ul>
-                            {"".join(f"<li>{rec}</li>" for rec in ai_insights.get("ai_recommendations", []))}
-                        </ul>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                else:
-                    st.info("🤖 AI not available — showing deterministic fallback.")
+                # AI INJECTION: Display AI suggestions for budget
+                display_ai_suggestions(ai_insights, "Budget Analysis")
                 
                 # Visualizations
                 st.subheader("Budget Analysis Dashboard")
@@ -1515,6 +1551,7 @@ class FinancialFlows:
                 
                 # Store in session state for chat context
                 st.session_state.budget_data = budget_summary
+                # AI INJECTION: Store AI insights for context
                 st.session_state.budget_ai_insights = ai_insights
             
             return budget_summary
@@ -1643,11 +1680,7 @@ class FinancialFlows:
             )
             
             # AI INJECTION: Generate AI insights for investment analysis
-            if not TEST_MODE:
-                with st.spinner("🤖 Generating AI investment insights..."):
-                    ai_insights = generate_ai_insights(allocation_data, "Investment Analysis")
-            else:
-                ai_insights = {"ai_score": 65, "ai_reasoning": "Test AI reasoning", "ai_recommendations": ["Test recommendation"]}
+            ai_insights = generate_ai_insights(allocation_data, "Investment Analysis")
             
             if not TEST_MODE:
                 # Display allocation summary
@@ -1683,32 +1716,21 @@ class FinancialFlows:
                     </div>
                     ''', unsafe_allow_html=True)
                 
-                # Portfolio metrics with AI score
-                ai_risk_score = ai_insights.get("ai_score", "N/A")
+                # Portfolio metrics with AI enhancement
+                ai_score = ai_insights.get("ai_score")
+                ai_score_text = f" | AI Risk Score: {ai_score}/100" if ai_score is not None else ""
+                
                 st.markdown(f'''
                 <div class="summary-card">
-                    <h3>Portfolio Metrics</h3>
+                    <h3>Portfolio Metrics{ai_score_text}</h3>
                     <p><strong>Expected Annual Return:</strong> {allocation_data["expected_annual_return"]:.1%}</p>
                     <p><strong>Estimated Volatility:</strong> {allocation_data["volatility_estimate"]:.1%}</p>
                     <p><strong>Risk Level:</strong> {allocation_data["risk_level"]}</p>
-                    <p><strong>AI Risk Score:</strong> {ai_risk_score}/100</p>
                 </div>
                 ''', unsafe_allow_html=True)
                 
-                # AI INJECTION: Display AI suggestions section
-                if ai_insights.get("ai_recommendations") and ai_insights["ai_recommendations"][0] != "AI analysis unavailable - using standard recommendations.":
-                    st.markdown(f'''
-                    <div class="ai-suggestions-card">
-                        <h3>🤖 AI Investment Suggestions</h3>
-                        <p><strong>AI Risk Assessment:</strong> {ai_insights.get("ai_reasoning", "AI analysis not available")}</p>
-                        <h4>Personalized Investment Recommendations:</h4>
-                        <ul>
-                            {"".join(f"<li>{rec}</li>" for rec in ai_insights.get("ai_recommendations", []))}
-                        </ul>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                else:
-                    st.info("🤖 AI not available — showing deterministic fallback.")
+                # AI INJECTION: Display AI suggestions for investment
+                display_ai_suggestions(ai_insights, "Investment Analysis")
                 
                 # Projections
                 if allocation_data.get('projections'):
@@ -1723,6 +1745,7 @@ class FinancialFlows:
                 
                 # Store in session state
                 st.session_state.investment_data = allocation_data
+                # AI INJECTION: Store AI insights
                 st.session_state.investment_ai_insights = ai_insights
             
             return allocation_data
@@ -1835,11 +1858,7 @@ class FinancialFlows:
                 debt_analysis = FinancialCalculator.calculate_debt_payoff(st.session_state.debts, form_data['extra_payment'], form_data['strategy'])
                 
                 # AI INJECTION: Generate AI insights for debt analysis
-                if not TEST_MODE:
-                    with st.spinner("🤖 Generating AI debt insights..."):
-                        ai_insights = generate_ai_insights(debt_analysis, "Debt Analysis")
-                else:
-                    ai_insights = {"ai_score": 45, "ai_reasoning": "Test AI reasoning", "ai_recommendations": ["Test recommendation"]}
+                ai_insights = generate_ai_insights(debt_analysis, "Debt Analysis")
                 
                 if not TEST_MODE:
                     # Summary metrics
@@ -1878,24 +1897,31 @@ class FinancialFlows:
                             ''', unsafe_allow_html=True)
                     
                     with col4:
-                        # AI INJECTION: Display AI debt score
-                        ai_debt_score = ai_insights.get("ai_score", "N/A")
-                        if form_data['extra_payment'] > 0:
+                        # AI INJECTION: Display AI debt health score
+                        ai_score = ai_insights.get("ai_score")
+                        if ai_score is not None:
+                            score_color = "#ef4444" if ai_score < 30 else "#f59e0b" if ai_score < 60 else "#10b981"
                             st.markdown(f'''
                             <div class="metric-card">
-                                <h3>Time Savings</h3>
-                                <h2 style="color: green">{debt_analysis["time_savings_months"]:.0f} months</h2>
-                                <p>AI Debt Score: {ai_debt_score}/100</p>
+                                <h3>AI Debt Health</h3>
+                                <h2 style="color: {score_color}">{ai_score}/100</h2>
                             </div>
                             ''', unsafe_allow_html=True)
                         else:
-                            st.markdown(f'''
-                            <div class="metric-card">
-                                <h3>Payoff Time</h3>
-                                <h2>{debt_analysis["scenarios"]["minimum_only"]["total_months"]:.0f} months</h2>
-                                <p>AI Debt Score: {ai_debt_score}/100</p>
-                            </div>
-                            ''', unsafe_allow_html=True)
+                            if form_data['extra_payment'] > 0:
+                                st.markdown(f'''
+                                <div class="metric-card">
+                                    <h3>Time Savings</h3>
+                                    <h2 style="color: green">{debt_analysis["time_savings_months"]:.0f} months</h2>
+                                </div>
+                                ''', unsafe_allow_html=True)
+                            else:
+                                st.markdown(f'''
+                                <div class="metric-card">
+                                    <h3>Payoff Time</h3>
+                                    <h2>{debt_analysis["scenarios"]["minimum_only"]["total_months"]:.0f} months</h2>
+                                </div>
+                                ''', unsafe_allow_html=True)
                     
                     # Detailed payoff plan
                     st.subheader("Debt Payoff Priority Order")
@@ -1913,7 +1939,7 @@ class FinancialFlows:
                         display_plan.columns = ['Priority', 'Debt Name', 'Balance', 'Interest Rate', 'Monthly Payment', 'Months to Payoff', 'Total Interest']
                         st.dataframe(display_plan, use_container_width=True)
                     
-                    # Standard recommendations
+                    # Recommendations
                     st.markdown(f'''
                     <div class="summary-card">
                         <h3>Debt Payoff Recommendations</h3>
@@ -1927,20 +1953,8 @@ class FinancialFlows:
                     </div>
                     ''', unsafe_allow_html=True)
                     
-                    # AI INJECTION: Display AI suggestions section
-                    if ai_insights.get("ai_recommendations") and ai_insights["ai_recommendations"][0] != "AI analysis unavailable - using standard recommendations.":
-                        st.markdown(f'''
-                        <div class="ai-suggestions-card">
-                            <h3>🤖 AI Debt Management Suggestions</h3>
-                            <p><strong>AI Debt Assessment:</strong> {ai_insights.get("ai_reasoning", "AI analysis not available")}</p>
-                            <h4>Personalized Debt Management Recommendations:</h4>
-                            <ul>
-                                {"".join(f"<li>{rec}</li>" for rec in ai_insights.get("ai_recommendations", []))}
-                            </ul>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                    else:
-                        st.info("🤖 AI not available — showing deterministic fallback.")
+                    # AI INJECTION: Display AI suggestions for debt
+                    display_ai_suggestions(ai_insights, "Debt Analysis")
                     
                     # Visualization
                     st.subheader("Debt Analysis Dashboard")
@@ -1949,6 +1963,7 @@ class FinancialFlows:
                     
                     # Store in session state
                     st.session_state.debt_data = debt_analysis
+                    # AI INJECTION: Store AI insights
                     st.session_state.debt_ai_insights = ai_insights
                 
                 return debt_analysis
@@ -2044,11 +2059,7 @@ class FinancialFlows:
             )
             
             # AI INJECTION: Generate AI insights for retirement analysis
-            if not TEST_MODE:
-                with st.spinner("🤖 Generating AI retirement insights..."):
-                    ai_insights = generate_ai_insights(retirement_analysis, "Retirement Analysis")
-            else:
-                ai_insights = {"ai_score": 70, "ai_reasoning": "Test AI reasoning", "ai_recommendations": ["Test recommendation"]}
+            ai_insights = generate_ai_insights(retirement_analysis, "Retirement Analysis")
             
             if not TEST_MODE:
                 # Key metrics
@@ -2079,18 +2090,27 @@ class FinancialFlows:
                     ''', unsafe_allow_html=True)
                 
                 with col4:
-                    gap = retirement_analysis["retirement_gap"]
-                    gap_color = "red" if gap > 0 else "green"
-                    gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
-                    ai_retirement_score = ai_insights.get("ai_score", "N/A")
-                    
-                    st.markdown(f'''
-                    <div class="metric-card">
-                        <h3>Retirement Gap</h3>
-                        <h2 style="color: {gap_color}">{gap_text}</h2>
-                        <p>AI Readiness: {ai_retirement_score}/100</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    # AI INJECTION: Display AI retirement readiness score
+                    ai_score = ai_insights.get("ai_score")
+                    if ai_score is not None:
+                        score_color = "#ef4444" if ai_score < 30 else "#f59e0b" if ai_score < 60 else "#10b981"
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>AI Readiness Index</h3>
+                            <h2 style="color: {score_color}">{ai_score}/100</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        gap = retirement_analysis["retirement_gap"]
+                        gap_color = "red" if gap > 0 else "green"
+                        gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
+                        
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>Retirement Gap</h3>
+                            <h2 style="color: {gap_color}">{gap_text}</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
                 
                 # Scenario comparison
                 st.subheader("Retirement Scenarios")
@@ -2124,20 +2144,8 @@ class FinancialFlows:
                 </div>
                 ''', unsafe_allow_html=True)
                 
-                # AI INJECTION: Display AI suggestions section
-                if ai_insights.get("ai_recommendations") and ai_insights["ai_recommendations"][0] != "AI analysis unavailable - using standard recommendations.":
-                    st.markdown(f'''
-                    <div class="ai-suggestions-card">
-                        <h3>🤖 AI Retirement Planning Suggestions</h3>
-                        <p><strong>AI Readiness Assessment:</strong> {ai_insights.get("ai_reasoning", "AI analysis not available")}</p>
-                        <h4>Personalized Retirement Recommendations:</h4>
-                        <ul>
-                            {"".join(f"<li>{rec}</li>" for rec in ai_insights.get("ai_recommendations", []))}
-                        </ul>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                else:
-                    st.info("🤖 AI not available — showing deterministic fallback.")
+                # AI INJECTION: Display AI suggestions for retirement
+                display_ai_suggestions(ai_insights, "Retirement Analysis")
                 
                 # FIXED: Action items with proper recommendation logic
                 gap = retirement_analysis["retirement_gap"]
@@ -2160,6 +2168,7 @@ class FinancialFlows:
                 
                 # Store in session state
                 st.session_state.retirement_data = retirement_analysis
+                # AI INJECTION: Store AI insights
                 st.session_state.retirement_ai_insights = ai_insights
             
             return retirement_analysis
@@ -2463,18 +2472,20 @@ def run_tests():
     except Exception as e:
         print(f"❌ FAIL: Flow test failed: {e}")
     
-    # Test 7: AI injection system
-    print("\n🤖 Test 7: AI integration system")
+    # Test 7: AI Integration
+    print("\n🤖 Test 7: AI Integration")
     try:
-        # Test AI insights generation with fallback
-        test_data = {"total_income": 5000, "savings_rate": 15.0, "health_score": 75}
-        ai_result = generate_ai_insights(test_data, "Budget Analysis")
-        assert isinstance(ai_result, dict), "Should return dictionary"
-        assert "ai_reasoning" in ai_result, "Should have reasoning field"
-        assert "ai_recommendations" in ai_result, "Should have recommendations field"
-        print("✅ PASS: AI integration system working (with fallback)")
+        # Test AI insights generation with sample data
+        sample_data = {'total_income': 5000, 'savings_rate': 15, 'health_score': 75}
+        ai_result = generate_ai_insights(sample_data, "Budget Analysis")
+        
+        assert 'ai_reasoning' in ai_result, "Should have AI reasoning"
+        assert 'ai_recommendations' in ai_result, "Should have AI recommendations"
+        assert isinstance(ai_result['ai_recommendations'], list), "Recommendations should be a list"
+        
+        print("✅ PASS: AI integration working correctly")
     except Exception as e:
-        print(f"❌ FAIL: AI integration test failed: {e}")
+        print(f"❌ FAIL: AI test failed: {e}")
     
     print("\n🎉 Test suite completed!")
 
@@ -2487,8 +2498,8 @@ def main():
     # Header
     st.markdown('<h1 class="main-header">🦙 AI Financial Advisor - LLAMA 3.3</h1>', unsafe_allow_html=True)
     
-    # AI Disclaimer
-    st.info("⚠️ **Important:** AI suggestions are educational only and not financial advice. Please consult qualified financial professionals for personalized guidance.")
+    # AI INJECTION: Add disclaimer note
+    st.info("💡 **Disclaimer**: AI suggestions are educational only and not financial advice. Always consult with a qualified financial professional for personalized guidance.")
     
     # Sidebar for persona selection and navigation
     selected_persona, persona_info = PersonaManager.display_persona_selector()
@@ -2603,53 +2614,66 @@ def main():
         if 'budget_data' in st.session_state:
             with summary_cols[0]:
                 budget = st.session_state.budget_data
-                ai_score = st.session_state.get('budget_ai_insights', {}).get('ai_score', budget['health_score'])
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('budget_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                ai_text = f" | AI: {ai_score}/100" if ai_score else ""
+                
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>💰 Budget Health</h4>
                     <p><strong>{budget["financial_health"]}</strong></p>
-                    <p>Savings Rate: {budget["savings_rate"]:.1f}%</p>
-                    <p>AI Score: {ai_score}/100</p>
+                    <p>Savings Rate: {budget["savings_rate"]:.1f}%{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
         
         if 'investment_data' in st.session_state:
             with summary_cols[1]:
                 investment = st.session_state.investment_data
-                ai_risk_score = st.session_state.get('investment_ai_insights', {}).get('ai_score', 'N/A')
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('investment_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                ai_text = f" | Risk: {ai_score}/100" if ai_score else ""
+                
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>📈 Investment Profile</h4>
                     <p><strong>{investment["risk_level"]}</strong></p>
-                    <p>Expected Return: {investment["expected_annual_return"]:.1%}</p>
-                    <p>AI Risk Score: {ai_risk_score}/100</p>
+                    <p>Expected Return: {investment["expected_annual_return"]:.1%}{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
         
         if 'debt_data' in st.session_state:
             with summary_cols[2]:
                 debt = st.session_state.debt_data
-                ai_debt_score = st.session_state.get('debt_ai_insights', {}).get('ai_score', 'N/A')
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('debt_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                ai_text = f" | Health: {ai_score}/100" if ai_score else ""
+                
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>💳 Debt Status</h4>
                     <p><strong>${debt["total_debt"]:,.0f}</strong></p>
-                    <p>Strategy: {debt["strategy"].title()}</p>
-                    <p>AI Debt Score: {ai_debt_score}/100</p>
+                    <p>Strategy: {debt["strategy"].title()}{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
         
         if 'retirement_data' in st.session_state:
             with summary_cols[3]:
                 retirement = st.session_state.retirement_data
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('retirement_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                
                 gap_status = "On Track" if retirement["retirement_gap"] <= 0 else f"${retirement['retirement_gap']:,.0f} gap"
-                ai_retirement_score = st.session_state.get('retirement_ai_insights', {}).get('ai_score', 'N/A')
+                ai_text = f" | Readiness: {ai_score}/100" if ai_score else ""
+                
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>🏖️ Retirement</h4>
                     <p><strong>{retirement["years_to_retirement"]} years left</strong></p>
-                    <p>{gap_status}</p>
-                    <p>AI Readiness: {ai_retirement_score}/100</p>
+                    <p>{gap_status}{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
 
