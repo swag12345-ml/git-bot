@@ -1,5 +1,6 @@
 """
-AI Financial Advisor Application with LLaMA 3.3 Integration
+AI Financial Advisor Application - LLAMA 3.3
+A comprehensive financial planning tool with AI-powered insights
 
 Required pip packages:
 pip install streamlit plotly pandas numpy easyocr torch torchvision torchaudio opencv-python pdf2image pymupdf python-dotenv faiss-cpu sentence-transformers langchain langchain-community langchain-groq langchain-huggingface langchain-text-splitters
@@ -336,9 +337,13 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True  # Optimize GPU performance
 
-# Load GROQ API Key
 def load_groq_api_key():
-    """Loads the GROQ API key from config.json or environment variables."""
+    """
+    Loads the GROQ API key from config.json or environment variables.
+    
+    Returns:
+        str: GROQ API key or None if not found
+    """
     try:
         with open(os.path.join(working_dir, "config.json"), "r") as f:
             return json.load(f).get("GROQ_API_KEY")
@@ -347,19 +352,16 @@ def load_groq_api_key():
 
 groq_api_key = load_groq_api_key() if not TEST_MODE else "test_key"
 
-# AI INJECTION: Centralized AI helper function for LLM calls
 def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, Any]:
     """
     Centralized AI insights generator using LLaMA 3.3 via Groq.
-    Returns AI score (0-100), reasoning, and recommendations in JSON format.
-    Falls back gracefully when GROQ API key is missing or LLM call fails.
     
     Args:
         data: Dictionary containing financial data for analysis
-        context_label: String describing the context (e.g., "Budget Analysis")
-        
+        context_label: Label indicating the type of analysis (e.g., "Budget Analysis")
+    
     Returns:
-        Dictionary with ai_score, ai_reasoning, and ai_recommendations
+        Dict containing AI score (0-100), reasoning, and recommendations
     """
     # Fallback response for when AI is not available
     fallback_response = {
@@ -492,15 +494,13 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
             st.warning(f"AI analysis temporarily unavailable: {str(e)}")
         return fallback_response
 
-# AI INJECTION: Helper function to display AI suggestions consistently
-def display_ai_suggestions(ai_insights: Dict[str, Any], context_label: str, system_score: Optional[float] = None):
+def display_ai_suggestions(ai_insights: Dict[str, Any], context_label: str):
     """
     Display AI suggestions in a consistent format across all flows.
     
     Args:
         ai_insights: Dictionary containing AI analysis results
-        context_label: String describing the context
-        system_score: Optional system-calculated score to display alongside AI score
+        context_label: Label for the type of analysis
     """
     if TEST_MODE:
         return
@@ -512,18 +512,12 @@ def display_ai_suggestions(ai_insights: Dict[str, Any], context_label: str, syst
     # Display AI suggestions card
     st.markdown("### 🤖 AI Suggestions")
     
-    # Standardized AI Score display - always show both System Score and AI Score if available
+    # AI Score display
     if ai_score is not None:
         score_color = "#ef4444" if ai_score < 30 else "#f59e0b" if ai_score < 60 else "#10b981"
-        
-        # Show both scores when available
-        scores_text = f"AI {context_label.split()[0]} Score: {ai_score}/100"
-        if system_score is not None:
-            scores_text += f" | System Score: {system_score}/100"
-            
         st.markdown(f'''
         <div class="ai-suggestions-card">
-            <h4>{scores_text}</h4>
+            <h4>AI {context_label.split()[0]} Score: {ai_score}/100</h4>
             <p><strong>Analysis:</strong> {ai_reasoning}</p>
             <h4>Personalized Recommendations:</h4>
             <ul>
@@ -532,12 +526,9 @@ def display_ai_suggestions(ai_insights: Dict[str, Any], context_label: str, syst
         </div>
         ''', unsafe_allow_html=True)
     else:
-        # Show only system score when AI is not available
-        scores_text = f"System Score: {system_score}/100" if system_score is not None else "Analysis"
-        
         st.markdown(f'''
         <div class="ai-suggestions-card">
-            <h4>{scores_text}</h4>
+            <h4>AI Analysis</h4>
             <p><strong>Note:</strong> {ai_reasoning}</p>
             <h4>General Recommendations:</h4>
             <ul>
@@ -570,9 +561,9 @@ class FinancialCalculator:
         Args:
             income: Monthly income amount
             expenses: Dictionary of expense categories and amounts
-            
+        
         Returns:
-            Dictionary containing budget analysis results
+            Dict containing budget analysis results
         """
         if income <= 0:
             return {
@@ -675,7 +666,17 @@ class FinancialCalculator:
     
     @staticmethod
     def _get_budget_recommendations(savings_rate: float, expenses: Dict[str, float], income: float) -> List[str]:
-        """Generate personalized budget recommendations based on financial metrics."""
+        """
+        Generate personalized budget recommendations.
+        
+        Args:
+            savings_rate: Current savings rate as percentage
+            expenses: Dictionary of expenses
+            income: Monthly income
+        
+        Returns:
+            List of recommendation strings
+        """
         recommendations = []
         
         if savings_rate < 10:
@@ -684,7 +685,7 @@ class FinancialCalculator:
         # Check for high expense categories
         housing_ratio = expenses.get('housing', 0) / income * 100 if income > 0 else 0
         if housing_ratio > 30:
-            recommendations.append(f"🏠 Consider reducing housing costs - currently {housing_ratio:.1f}% of income")
+            recommendations.append("🏠 Consider reducing housing costs - currently {}% of income".format(round(housing_ratio, 1)))
             
         if expenses.get('dining_out', 0) > expenses.get('groceries', 0):
             recommendations.append("🍽️ Consider cooking more at home to reduce dining expenses")
@@ -703,15 +704,14 @@ class FinancialCalculator:
         Calculate sophisticated investment allocation with dynamic allocations based on inputs.
         
         Args:
-            risk_profile: Investment risk tolerance (conservative, moderate, aggressive)
+            risk_profile: Risk tolerance level (conservative, moderate, aggressive)
             time_horizon: Investment time horizon in years
-            capital: Initial investment capital
+            capital: Initial investment amount
             age: Investor's age
-            
-        Returns:
-            Dictionary containing investment allocation analysis
-        """
         
+        Returns:
+            Dict containing allocation recommendations and projections
+        """
         # Base allocations by risk profile
         base_allocations = {
             'conservative': {'stocks': 25, 'bonds': 65, 'cash': 10},
@@ -787,7 +787,15 @@ class FinancialCalculator:
     
     @staticmethod
     def _calculate_portfolio_volatility(allocation: Dict[str, int]) -> float:
-        """Calculate estimated portfolio volatility based on asset allocation."""
+        """
+        Calculate estimated portfolio volatility.
+        
+        Args:
+            allocation: Dictionary of asset allocation percentages
+        
+        Returns:
+            Estimated portfolio volatility as a decimal
+        """
         volatilities = {'stocks': 0.16, 'bonds': 0.05, 'cash': 0.01}
         return sum((allocation[asset] / 100) * volatilities[asset] for asset in allocation)
     
@@ -798,11 +806,11 @@ class FinancialCalculator:
         
         Args:
             debts: List of debt dictionaries with balance, interest_rate, minimum_payment
-            extra_payment: Additional monthly payment available
+            extra_payment: Additional monthly payment amount
             strategy: Payoff strategy ('avalanche' or 'snowball')
-            
+        
         Returns:
-            Dictionary containing debt payoff analysis
+            Dict containing debt payoff analysis and scenarios
         """
         if not debts:
             return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0, 'scenarios': {}, 'strategy': strategy}
@@ -934,11 +942,11 @@ class FinancialCalculator:
             current_age: Current age of the person
             retirement_age: Desired retirement age
             current_income: Current annual income
-            current_savings: Current retirement savings balance
-            monthly_contribution: Monthly retirement contribution
-            
+            current_savings: Current retirement savings amount
+            monthly_contribution: Monthly contribution to retirement
+        
         Returns:
-            Dictionary containing retirement planning analysis
+            Dict containing retirement planning analysis
         """
         if current_income <= 0:
             return {
@@ -982,7 +990,7 @@ class FinancialCalculator:
         # Future value of current savings
         future_current_savings = current_savings * ((1 + investment_return) ** years_to_retirement)
         
-        # FIXED: Future value of contributions using standard future value of annuity formula
+        # FIXED: Future value of contributions using proper future value of annuity formula
         if investment_return > 0 and annual_contribution > 0:
             # Standard future value of ordinary annuity formula: PMT * [((1 + r)^n - 1) / r]
             future_contributions = annual_contribution * (
@@ -996,10 +1004,9 @@ class FinancialCalculator:
         # Gap analysis
         retirement_gap = max(0, retirement_corpus_needed - total_projected_savings)
         
-        # Calculate required monthly contribution to meet goal
+        # FIXED: Calculate required monthly contribution to meet goal
         if retirement_gap > 0 and years_to_retirement > 0:
             if investment_return > 0:
-                # Required annual contribution to fill the gap
                 required_annual_contribution = retirement_gap / (
                     ((1 + investment_return) ** years_to_retirement - 1) / investment_return
                 )
@@ -1016,6 +1023,7 @@ class FinancialCalculator:
             scenario_monthly = monthly_contribution * contribution_multiplier
             scenario_annual = scenario_monthly * 12
             
+            # FIXED: Use proper future value of annuity formula for scenarios
             if investment_return > 0 and scenario_annual > 0:
                 scenario_future_contributions = scenario_annual * (
                     ((1 + investment_return) ** years_to_retirement - 1) / investment_return
@@ -1058,7 +1066,18 @@ class FinancialCalculator:
     
     @staticmethod
     def _get_retirement_recommendations(gap: float, years_left: int, current_contrib: float, required_contrib: float) -> List[str]:
-        """Generate retirement planning recommendations based on analysis."""
+        """
+        Generate retirement planning recommendations.
+        
+        Args:
+            gap: Retirement funding gap
+            years_left: Years until retirement
+            current_contrib: Current monthly contribution
+            required_contrib: Required monthly contribution to meet goal
+        
+        Returns:
+            List of recommendation strings
+        """
         recommendations = []
         
         # FIXED: Proper recommendation logic
@@ -1089,7 +1108,16 @@ class FinancialVisualizer:
     
     @staticmethod
     def plot_expense_breakdown(expenses: Dict[str, float], title: str = "Expense Breakdown") -> go.Figure:
-        """Create an interactive pie chart for expense breakdown with empty data handling."""
+        """
+        Create an interactive pie chart for expense breakdown with empty data handling.
+        
+        Args:
+            expenses: Dictionary of expense categories and amounts
+            title: Chart title
+        
+        Returns:
+            Plotly figure object
+        """
         # Filter out zero expenses
         filtered_expenses = {k: v for k, v in expenses.items() if v > 0}
         
@@ -1131,7 +1159,15 @@ class FinancialVisualizer:
     
     @staticmethod
     def plot_budget_summary(budget_data: Dict[str, Any]) -> go.Figure:
-        """Create a comprehensive budget visualization with dynamic values."""
+        """
+        Create a comprehensive budget visualization with dynamic values.
+        
+        Args:
+            budget_data: Dictionary containing budget analysis results
+        
+        Returns:
+            Plotly figure object
+        """
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'Financial Health Score'),
@@ -1219,7 +1255,15 @@ class FinancialVisualizer:
     
     @staticmethod
     def plot_investment_allocation(allocation_data: Dict[str, Any]) -> go.Figure:
-        """Create investment allocation visualization with dynamic values."""
+        """
+        Create investment allocation visualization with dynamic values.
+        
+        Args:
+            allocation_data: Dictionary containing investment allocation data
+        
+        Returns:
+            Plotly figure object
+        """
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'Dollar Allocation'),
@@ -1303,7 +1347,15 @@ class FinancialVisualizer:
     
     @staticmethod
     def plot_debt_payoff(debt_data: Dict[str, Any]) -> go.Figure:
-        """Create debt payoff visualization with dynamic values."""
+        """
+        Create debt payoff visualization with dynamic values.
+        
+        Args:
+            debt_data: Dictionary containing debt analysis data
+        
+        Returns:
+            Plotly figure object
+        """
         scenarios = debt_data.get('scenarios', {})
         
         if not scenarios:
@@ -1372,7 +1424,15 @@ class FinancialVisualizer:
     
     @staticmethod
     def plot_retirement_projections(retirement_data: Dict[str, Any]) -> go.Figure:
-        """Create retirement planning visualization with dynamic values."""
+        """
+        Create retirement planning visualization with dynamic values.
+        
+        Args:
+            retirement_data: Dictionary containing retirement analysis data
+        
+        Returns:
+            Plotly figure object
+        """
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'Income Replacement'),
@@ -1472,7 +1532,12 @@ class FinancialFlows:
     
     @staticmethod
     def budgeting_flow():
-        """Interactive budgeting flow with guided questions."""
+        """
+        Interactive budgeting flow with guided questions.
+        
+        Returns:
+            Budget analysis results or None
+        """
         if not TEST_MODE:
             st.markdown('<div class="flow-card"><h2>💰 Smart Budgeting Assistant</h2><p>Let\'s create a comprehensive budget plan tailored to your financial situation.</p></div>', unsafe_allow_html=True)
         
@@ -1495,7 +1560,6 @@ class FinancialFlows:
                 
                 with col2:
                     other_income = st.number_input("Other Income (investments, etc.)", min_value=0.0, value=0.0, step=100.0)
-                    # FIXED: Dynamic calculation of total income
                     total_income = primary_income + secondary_income + other_income
                     st.metric("Total Monthly Income", f"${total_income:,.2f}")
                 
@@ -1527,18 +1591,17 @@ class FinancialFlows:
                 # Submit button
                 submitted = st.form_submit_button("Analyze My Budget", type="primary")
         else:
-            # Test mode - use sample data with dynamic income calculation
+            # Test mode - use sample data with dynamic total income calculation
             submitted = True
-            primary_income = 4000.0
-            secondary_income = 800.0
-            other_income = 200.0
-            total_income = primary_income + secondary_income + other_income  # FIXED: Dynamic calculation
             expenses = {
                 'housing': 1500, 'utilities': 200, 'groceries': 400,
                 'transportation': 300, 'insurance': 200, 'healthcare': 150,
                 'dining_out': 300, 'shopping': 200, 'subscriptions': 50,
                 'savings': 500, 'debt_payments': 300, 'other': 100
             }
+            # FIXED: Calculate total income dynamically from expenses for test mode
+            total_expenses = sum(expenses.values())
+            total_income = total_expenses + 1000  # Add some savings for realistic test scenario
         
         # Process form submission
         if submitted:
@@ -1585,14 +1648,14 @@ class FinancialFlows:
                     ''', unsafe_allow_html=True)
                 
                 with col4:
-                    # FIXED: Standardized AI score display - always show both System Score and AI Score if available
+                    # FIXED: Standardized AI score display - show both System Score and AI Score
                     ai_score = ai_insights.get("ai_score")
                     if ai_score is not None:
                         st.markdown(f'''
                         <div class="metric-card">
-                            <h3>AI Score: {ai_score}/100</h3>
-                            <p>System: {budget_summary["health_score"]}/100</p>
-                            <h2 style="color: {budget_summary["health_color"]}">Health Score</h2>
+                            <h3>System Score</h3>
+                            <h2 style="color: {budget_summary["health_color"]}">{budget_summary["health_score"]}/100</h2>
+                            <p>AI Score: {ai_score}/100</p>
                         </div>
                         ''', unsafe_allow_html=True)
                     else:
@@ -1614,8 +1677,8 @@ class FinancialFlows:
                 </div>
                 ''', unsafe_allow_html=True)
                 
-                # FIXED: Standardized AI suggestions display
-                display_ai_suggestions(ai_insights, "Budget Analysis", budget_summary["health_score"])
+                # AI INJECTION: Display AI suggestions for budget
+                display_ai_suggestions(ai_insights, "Budget Analysis")
                 
                 # Visualizations
                 st.subheader("Budget Analysis Dashboard")
@@ -1631,7 +1694,12 @@ class FinancialFlows:
     
     @staticmethod
     def investing_flow():
-        """Interactive investment planning flow with dynamic risk profile calculation."""
+        """
+        Interactive investment planning flow with dynamic risk profile calculation.
+        
+        Returns:
+            Investment allocation data or None
+        """
         if not TEST_MODE:
             st.markdown('<div class="flow-card"><h2>📈 Investment Portfolio Builder</h2><p>Let\'s create an optimal investment strategy based on your goals and risk tolerance.</p></div>', unsafe_allow_html=True)
         
@@ -1789,23 +1857,23 @@ class FinancialFlows:
                     </div>
                     ''', unsafe_allow_html=True)
                 
-                # Portfolio metrics with AI enhancement - FIXED: Standardized score display
+                # FIXED: Standardized AI score display with expected return formatting
                 ai_score = ai_insights.get("ai_score")
                 if ai_score is not None:
-                    ai_score_text = f"AI Risk Score: {ai_score}/100"
+                    ai_score_text = f" | AI Score: {ai_score}/100"
                 else:
-                    ai_score_text = "System Analysis"
+                    ai_score_text = ""
                 
                 st.markdown(f'''
                 <div class="summary-card">
-                    <h3>Portfolio Metrics - {ai_score_text}</h3>
+                    <h3>Portfolio Metrics{ai_score_text}</h3>
                     <p><strong>Expected Annual Return:</strong> {allocation_data["expected_annual_return"]:.1%}</p>
                     <p><strong>Estimated Volatility:</strong> {allocation_data["volatility_estimate"]:.1%}</p>
                     <p><strong>Risk Level:</strong> {allocation_data["risk_level"]}</p>
                 </div>
                 ''', unsafe_allow_html=True)
                 
-                # FIXED: Standardized AI suggestions display
+                # AI INJECTION: Display AI suggestions for investment
                 display_ai_suggestions(ai_insights, "Investment Analysis")
                 
                 # Projections
@@ -1828,7 +1896,12 @@ class FinancialFlows:
     
     @staticmethod
     def debt_repayment_flow():
-        """Interactive debt repayment planning flow with fixed avalanche/snowball logic."""
+        """
+        Interactive debt repayment planning flow with fixed avalanche/snowball logic.
+        
+        Returns:
+            Debt analysis results or None
+        """
         if not TEST_MODE:
             st.markdown('<div class="flow-card"><h2>💳 Debt Freedom Planner</h2><p>Let\'s create a strategic plan to eliminate your debt efficiently.</p></div>', unsafe_allow_html=True)
         
@@ -1969,19 +2042,19 @@ class FinancialFlows:
                             st.markdown(f'''
                             <div class="metric-card">
                                 <h3>Interest Savings</h3>
-                                <h2>${0:,.2f}</h2>
+                                <h2>$0</h2>
                             </div>
                             ''', unsafe_allow_html=True)
                     
                     with col4:
-                        # FIXED: Standardized AI score display
+                        # FIXED: Standardized AI score display - show both System Score and AI Score
                         ai_score = ai_insights.get("ai_score")
                         if ai_score is not None:
-                            score_color = "#ef4444" if ai_score < 30 else "#f59e0b" if ai_score < 60 else "#10b981"
                             st.markdown(f'''
                             <div class="metric-card">
-                                <h3>AI Debt Health</h3>
-                                <h2 style="color: {score_color}">{ai_score}/100</h2>
+                                <h3>System Score</h3>
+                                <h2>{100 - min(100, debt_analysis["total_debt"] / 1000):.0f}/100</h2>
+                                <p>AI Score: {ai_score}/100</p>
                             </div>
                             ''', unsafe_allow_html=True)
                         else:
@@ -1997,7 +2070,7 @@ class FinancialFlows:
                                 st.markdown(f'''
                                 <div class="metric-card">
                                     <h3>Time Savings</h3>
-                                    <h2>{0} months</h2>
+                                    <h2>0 months</h2>
                                 </div>
                                 ''', unsafe_allow_html=True)
                     
@@ -2031,7 +2104,7 @@ class FinancialFlows:
                     </div>
                     ''', unsafe_allow_html=True)
                     
-                    # FIXED: Standardized AI suggestions display
+                    # AI INJECTION: Display AI suggestions for debt
                     display_ai_suggestions(ai_insights, "Debt Analysis")
                     
                     # Visualization
@@ -2048,7 +2121,12 @@ class FinancialFlows:
     
     @staticmethod
     def retirement_planning_flow():
-        """Interactive retirement planning flow - fixed to prevent form re-run issues."""
+        """
+        Interactive retirement planning flow with improved calculations.
+        
+        Returns:
+            Retirement analysis results or None
+        """
         if not TEST_MODE:
             st.markdown('<div class="flow-card"><h2>🏖️ Retirement Planning Assistant</h2><p>Let\'s ensure you\'re on track for a comfortable retirement.</p></div>', unsafe_allow_html=True)
         
@@ -2168,18 +2246,22 @@ class FinancialFlows:
                     ''', unsafe_allow_html=True)
                 
                 with col4:
-                    # FIXED: Standardized AI score display
+                    # FIXED: Standardized AI score display - show both System Score and AI Score
                     ai_score = ai_insights.get("ai_score")
+                    gap = retirement_analysis["retirement_gap"]
+                    
                     if ai_score is not None:
-                        score_color = "#ef4444" if ai_score < 30 else "#f59e0b" if ai_score < 60 else "#10b981"
+                        gap_color = "red" if gap > 0 else "green"
+                        gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
+                        
                         st.markdown(f'''
                         <div class="metric-card">
-                            <h3>AI Readiness Index</h3>
-                            <h2 style="color: {score_color}">{ai_score}/100</h2>
+                            <h3>System Score</h3>
+                            <h2 style="color: {gap_color}">{100 - min(100, gap/10000):.0f}/100</h2>
+                            <p>AI Score: {ai_score}/100</p>
                         </div>
                         ''', unsafe_allow_html=True)
                     else:
-                        gap = retirement_analysis["retirement_gap"]
                         gap_color = "red" if gap > 0 else "green"
                         gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
                         
@@ -2222,7 +2304,7 @@ class FinancialFlows:
                 </div>
                 ''', unsafe_allow_html=True)
                 
-                # FIXED: Standardized AI suggestions display
+                # AI INJECTION: Display AI suggestions for retirement
                 display_ai_suggestions(ai_insights, "Retirement Analysis")
                 
                 # FIXED: Action items with proper recommendation logic
@@ -2277,7 +2359,12 @@ class PersonaManager:
     
     @staticmethod
     def display_persona_selector():
-        """Display persona selection interface."""
+        """
+        Display persona selection interface.
+        
+        Returns:
+            Tuple of selected persona name and persona info
+        """
         if TEST_MODE:
             return "Friendly Coach", PersonaManager.PERSONAS["Friendly Coach"]
             
@@ -2302,7 +2389,15 @@ class PersonaManager:
         return selected_persona, persona_info
 
 def extract_text_from_pdf(file_path):
-    """Extracts text from PDFs using PyMuPDF, falls back to OCR if needed."""
+    """
+    Extracts text from PDFs using PyMuPDF, falls back to OCR if needed.
+    
+    Args:
+        file_path: Path to the PDF file
+    
+    Returns:
+        List of text content from each page
+    """
     if TEST_MODE:
         return ["Test PDF content"]
         
@@ -2316,7 +2411,15 @@ def extract_text_from_pdf(file_path):
         return []
 
 def extract_text_from_images(pdf_path):
-    """Extracts text from image-based PDFs using GPU-accelerated EasyOCR."""
+    """
+    Extracts text from image-based PDFs using GPU-accelerated EasyOCR.
+    
+    Args:
+        pdf_path: Path to the PDF file
+    
+    Returns:
+        List of extracted text from each page
+    """
     if reader is None or TEST_MODE:
         return ["OCR not available in test mode"]
     
@@ -2328,7 +2431,15 @@ def extract_text_from_images(pdf_path):
         return []
 
 def setup_vectorstore(documents):
-    """Creates a FAISS vector store using Hugging Face embeddings."""
+    """
+    Creates a FAISS vector store using Hugging Face embeddings.
+    
+    Args:
+        documents: List of text documents
+    
+    Returns:
+        FAISS vectorstore instance or None
+    """
     if TEST_MODE:
         return None
         
@@ -2346,12 +2457,20 @@ def setup_vectorstore(documents):
         return None
 
 def create_chain(vectorstore):
-    """Creates the chat chain with optimized retriever settings."""
+    """
+    Creates the chat chain with optimized retriever settings.
+    
+    Args:
+        vectorstore: FAISS vectorstore instance
+    
+    Returns:
+        ConversationalRetrievalChain instance or None
+    """
     if TEST_MODE:
         return None
         
     try:
-        # FIXED: Ensure memory exists before using
+        # FIXED: Add safeguards - ensure memory exists before using it
         if "memory" not in st.session_state:
             st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
@@ -2370,7 +2489,16 @@ def create_chain(vectorstore):
         return None
 
 def get_fallback_response(user_input: str, persona: str) -> str:
-    """Rule-based fallback responses when LLM is unavailable."""
+    """
+    Rule-based fallback responses when LLM is unavailable.
+    
+    Args:
+        user_input: User's input message
+        persona: Selected persona type
+    
+    Returns:
+        Appropriate fallback response string
+    """
     user_input_lower = user_input.lower()
     
     # Budget-related responses
@@ -2419,15 +2547,20 @@ def get_fallback_response(user_input: str, persona: str) -> str:
             return "🛡️ Financial security comes from careful planning. I can help with conservative strategies for budgeting, investing, and retirement. What's your priority?"
 
 async def get_response(user_input, persona_info):
-    """Get response from LLM or fallback system."""
+    """
+    Get response from LLM or fallback system.
+    
+    Args:
+        user_input: User's input message
+        persona_info: Persona information dictionary
+    
+    Returns:
+        Response string from AI or fallback system
+    """
     if TEST_MODE:
         return "Test response from AI assistant"
         
     try:
-        # FIXED: Safeguard memory access
-        if "memory" not in st.session_state:
-            st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-            
         if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
             # Enhance prompt with persona and financial context
             enhanced_prompt = f"""
@@ -2441,6 +2574,10 @@ async def get_response(user_input, persona_info):
             Provide helpful, personalized financial advice in your characteristic style.
             """
             
+            # FIXED: Add safeguards - ensure memory exists
+            if "memory" not in st.session_state:
+                st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            
             response = await asyncio.to_thread(
                 st.session_state.conversation_chain.invoke,
                 {"question": enhanced_prompt, "chat_history": st.session_state.memory.chat_memory.messages}
@@ -2453,7 +2590,12 @@ async def get_response(user_input, persona_info):
         return get_fallback_response(user_input, list(PersonaManager.PERSONAS.keys())[0])
 
 def get_financial_context():
-    """Get context from previous financial analysis."""
+    """
+    Get context from previous financial analysis.
+    
+    Returns:
+        String containing financial context or default message
+    """
     context = []
     
     if 'budget_data' in st.session_state:
@@ -2475,7 +2617,7 @@ def get_financial_context():
     return " | ".join(context) if context else "No previous financial analysis available."
 
 def run_tests():
-    """Run test scenarios to validate functionality."""
+    """Run test scenarios to validate functionality"""
     print("🧪 Running Financial App Tests...")
     
     # Test 1: Zero income budget
@@ -2573,7 +2715,7 @@ def run_tests():
     print("\n🎉 Test suite completed!")
 
 def main():
-    """Main application function."""
+    """Main application function"""
     if TEST_MODE:
         run_tests()
         return
@@ -2683,9 +2825,11 @@ def main():
             # Add assistant response to chat history
             st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
             
-            # FIXED: Safeguard memory access before saving context
+            # FIXED: Add safeguards - initialize memory if missing before saving context
             if "memory" not in st.session_state:
                 st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            
+            # Save to memory if available
             st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
     
     # Footer with financial summary
@@ -2698,82 +2842,66 @@ def main():
         if 'budget_data' in st.session_state:
             with summary_cols[0]:
                 budget = st.session_state.budget_data
-                # AI INJECTION: Show AI score if available - FIXED: Standardized display
+                # AI INJECTION: Show AI score if available
                 ai_insights = st.session_state.get('budget_ai_insights', {})
                 ai_score = ai_insights.get('ai_score')
-                
-                if ai_score is not None:
-                    ai_text = f"AI: {ai_score}/100 | System: {budget['health_score']}/100"
-                else:
-                    ai_text = f"System Score: {budget['health_score']}/100"
+                ai_text = f" | AI: {ai_score}/100" if ai_score else ""
                 
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>💰 Budget Health</h4>
                     <p><strong>{budget["financial_health"]}</strong></p>
-                    <p>Savings: {budget["savings_rate"]:.1f}% | {ai_text}</p>
+                    <p>Savings Rate: {budget["savings_rate"]:.1f}%{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
         
         if 'investment_data' in st.session_state:
             with summary_cols[1]:
                 investment = st.session_state.investment_data
-                # AI INJECTION: Show AI score if available - FIXED: Standardized display
+                # AI INJECTION: Show AI score if available
                 ai_insights = st.session_state.get('investment_ai_insights', {})
                 ai_score = ai_insights.get('ai_score')
-                
-                if ai_score is not None:
-                    ai_text = f"AI Risk: {ai_score}/100"
-                else:
-                    ai_text = "System Analysis"
+                ai_text = f" | Risk: {ai_score}/100" if ai_score else ""
                 
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>📈 Investment Profile</h4>
                     <p><strong>{investment["risk_level"]}</strong></p>
-                    <p>Return: {investment["expected_annual_return"]:.1%} | {ai_text}</p>
+                    <p>Expected Return: {investment["expected_annual_return"]:.1%}{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
         
         if 'debt_data' in st.session_state:
             with summary_cols[2]:
                 debt = st.session_state.debt_data
-                # AI INJECTION: Show AI score if available - FIXED: Standardized display
+                # AI INJECTION: Show AI score if available
                 ai_insights = st.session_state.get('debt_ai_insights', {})
                 ai_score = ai_insights.get('ai_score')
-                
-                if ai_score is not None:
-                    ai_text = f"AI Health: {ai_score}/100"
-                else:
-                    ai_text = "System Analysis"
+                ai_text = f" | Health: {ai_score}/100" if ai_score else ""
                 
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>💳 Debt Status</h4>
                     <p><strong>${debt["total_debt"]:,.0f}</strong></p>
-                    <p>{debt["strategy"].title()} | {ai_text}</p>
+                    <p>Strategy: {debt["strategy"].title()}{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
         
         if 'retirement_data' in st.session_state:
             with summary_cols[3]:
                 retirement = st.session_state.retirement_data
-                # AI INJECTION: Show AI score if available - FIXED: Standardized display
+                # AI INJECTION: Show AI score if available
                 ai_insights = st.session_state.get('retirement_ai_insights', {})
                 ai_score = ai_insights.get('ai_score')
                 
                 gap_status = "On Track" if retirement["retirement_gap"] <= 0 else f"${retirement['retirement_gap']:,.0f} gap"
-                
-                if ai_score is not None:
-                    ai_text = f"AI Readiness: {ai_score}/100"
-                else:
-                    ai_text = "System Analysis"
+                ai_text = f" | Readiness: {ai_score}/100" if ai_score else ""
                 
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>🏖️ Retirement</h4>
                     <p><strong>{retirement["years_to_retirement"]} years left</strong></p>
-                    <p>{gap_status} | {ai_text}</p>
+                    <p>{gap_status}{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
 
