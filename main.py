@@ -1,1948 +1,3528 @@
 """
-Advanced AI Financial Advisor - Production Ready
-A next-generation comprehensive financial planning platform with AI-powered insights
+AI Financial Advisor Application - LLAMA 3.3
+A comprehensive financial planning tool with AI-powered insights
 
-Features:
-- Multi-model AI support (LLaMA 3.3, GPT-4, Claude)
-- Real-time market data integration
-- Advanced portfolio optimization with Modern Portfolio Theory
-- Predictive analytics & ML-based forecasting
-- Multi-currency support with real-time conversion
-- Tax optimization & planning
-- Goal tracking with smart notifications
-- Data persistence with Supabase
-- Advanced visualizations & interactive dashboards
-- Export/Import capabilities (CSV, JSON, PDF reports)
-- Risk assessment & stress testing
-- Monte Carlo simulations
-- Sentiment analysis of financial news
-
-Required packages:
-pip install streamlit plotly pandas numpy yfinance requests supabase scikit-learn statsmodels prophet langchain-groq python-dotenv fpdf2 openpyxl
+Required pip packages:
+pip install streamlit plotly pandas numpy easyocr torch torchvision torchaudio opencv-python pdf2image pymupdf python-dotenv faiss-cpu sentence-transformers langchain langchain-community langchain-groq langchain-huggingface langchain-text-splitters
 """
 
-import streamlit as st
+import streamlit as st  # Streamlit must be imported first
 import os
 import json
+import torch
+import asyncio
+import tempfile
+import uuid
 import sys
+from dotenv import load_dotenv
+import fitz  # PyMuPDF for text extraction
+import easyocr  # GPU-accelerated OCR
+from pdf2image import convert_from_path  # Convert PDFs to images
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_groq import ChatGroq
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationalRetrievalChain
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
-from dotenv import load_dotenv
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-
-# Machine Learning & Forecasting
-try:
-    from sklearn.ensemble import RandomForestRegressor
-    from sklearn.preprocessing import StandardScaler
-    ML_AVAILABLE = True
-except ImportError:
-    ML_AVAILABLE = False
-
-# Market Data
-try:
-    import yfinance as yf
-    MARKET_DATA_AVAILABLE = True
-except ImportError:
-    MARKET_DATA_AVAILABLE = False
-
-# Supabase for data persistence
-try:
-    from supabase import create_client, Client
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    SUPABASE_AVAILABLE = False
-
-# AI/LLM
-try:
-    from langchain_groq import ChatGroq
-    AI_AVAILABLE = True
-except ImportError:
-    AI_AVAILABLE = False
-
-# PDF generation
-try:
-    from fpdf import FPDF
-    PDF_AVAILABLE = True
-except ImportError:
-    PDF_AVAILABLE = False
+import io
+import base64
 
 # Test mode check
 TEST_MODE = "--test" in sys.argv
 
 if not TEST_MODE:
+    # Set Streamlit Page Config
     st.set_page_config(
-        page_title="Advanced AI Financial Advisor",
-        page_icon="💎",
+        page_title="AI Financial Advisor - LLAMA 3.3", 
+        page_icon="💰", 
         layout="wide",
         initial_sidebar_state="expanded"
     )
 
-    # Advanced styling with modern gradients
+    # Custom CSS for dark theme financial advisor styling
     st.markdown("""
     <style>
-        /* Dark theme with blue/teal accents */
+        /* Global dark theme */
         .stApp {
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            background-color: #0e1117;
             color: #ffffff;
         }
-
+        
+        /* Main header styling */
         .main-header {
-            font-size: 3rem;
-            font-weight: 800;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #ffffff;
             text-align: center;
-            margin: 2rem 0;
-            background: linear-gradient(135deg, #00d4ff 0%, #0096ff 50%, #6366f1 100%);
+            margin-bottom: 2rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 30px rgba(0, 212, 255, 0.5);
         }
-
-        .metric-card {
+        
+        /* Dark theme cards */
+        .flow-card {
             background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
             padding: 1.5rem;
-            border-radius: 16px;
-            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 15px;
+            color: #ffffff;
             margin: 1rem 0;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-            transition: all 0.3s ease;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            transition: transform 0.3s ease;
+            border: 1px solid #374151;
         }
-
-        .metric-card:hover {
+        .flow-card:hover {
             transform: translateY(-5px);
-            border-color: rgba(0, 212, 255, 0.5);
-            box-shadow: 0 12px 48px rgba(0, 212, 255, 0.3);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
         }
-
-        .premium-card {
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #06b6d4 100%);
-            padding: 2rem;
-            border-radius: 20px;
-            margin: 1rem 0;
-            box-shadow: 0 12px 48px rgba(59, 130, 246, 0.4);
-            color: #ffffff;
-        }
-
-        .ai-insight-card {
-            background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%);
+        
+        /* Dark metric cards */
+        .metric-card {
+            background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
             padding: 1.5rem;
-            border-radius: 16px;
+            border-radius: 12px;
+            border-left: 5px solid #3b82f6;
             margin: 1rem 0;
-            border-left: 5px solid #c084fc;
-            box-shadow: 0 8px 32px rgba(124, 58, 237, 0.4);
-        }
-
-        .success-card {
-            background: linear-gradient(135deg, #065f46 0%, #10b981 100%);
-            padding: 1rem;
-            border-radius: 12px;
-            margin: 0.5rem 0;
-            border-left: 4px solid #34d399;
-        }
-
-        .warning-card {
-            background: linear-gradient(135deg, #92400e 0%, #f59e0b 100%);
-            padding: 1rem;
-            border-radius: 12px;
-            margin: 0.5rem 0;
-            border-left: 4px solid #fbbf24;
-        }
-
-        .stButton > button {
-            background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            padding: 0.75rem 2rem;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-
-        .stButton > button:hover {
-            background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
-            box-shadow: 0 8px 24px rgba(59, 130, 246, 0.5);
-            transform: translateY(-2px);
-        }
-
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 8px;
-            background-color: rgba(30, 41, 59, 0.5);
-            padding: 0.5rem;
-            border-radius: 12px;
-        }
-
-        .stTabs [data-baseweb="tab"] {
-            background-color: rgba(51, 65, 85, 0.5);
-            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
             color: #ffffff;
-            padding: 0.5rem 1.5rem;
+            border: 1px solid #4b5563;
         }
-
-        .stTabs [aria-selected="true"] {
-            background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
-        }
-
-        /* Input styling */
-        .stNumberInput input, .stTextInput input, .stSelectbox select {
-            background-color: rgba(30, 41, 59, 0.8) !important;
+        .metric-card h2, .metric-card h3, .metric-card h4 {
             color: #ffffff !important;
-            border: 1px solid rgba(59, 130, 246, 0.3) !important;
+        }
+        .metric-card p {
+            color: #d1d5db !important;
+        }
+        
+        /* AI Suggestions Card */
+        .ai-suggestions-card {
+            background: linear-gradient(135deg, #581c87 0%, #7c3aed 100%);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border-left: 5px solid #a78bfa;
+            margin: 1rem 0;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            color: #ffffff;
+            border: 1px solid #7c3aed;
+        }
+        .ai-suggestions-card h3, .ai-suggestions-card h4 {
+            color: #ffffff !important;
+        }
+        .ai-suggestions-card p, .ai-suggestions-card ul li {
+            color: #e9d5ff !important;
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Dark chat messages */
+        .chat-message {
+            padding: 1.2rem;
+            border-radius: 15px;
+            margin: 0.8rem 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            color: #ffffff;
+        }
+        .user-message {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            border-left: 4px solid #60a5fa;
+            color: #ffffff;
+        }
+        .bot-message {
+            background: linear-gradient(135deg, #581c87 0%, #7c3aed 100%);
+            border-left: 4px solid #a78bfa;
+            color: #ffffff;
+        }
+        
+        /* Dark persona cards */
+        .persona-card {
+            background: linear-gradient(135deg, #374151 0%, #4b5563 100%);
+            padding: 1rem;
+            border-radius: 10px;
+            margin: 0.5rem 0;
+            border-left: 4px solid #f59e0b;
+            color: #ffffff;
+            border: 1px solid #6b7280;
+        }
+        .persona-card h4 {
+            color: #ffffff !important;
+        }
+        .persona-card p, .persona-card em {
+            color: #d1d5db !important;
+        }
+        
+        /* Dark summary cards */
+        .summary-card {
+            background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+            padding: 1.5rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+            border-left: 5px solid #10b981;
+            color: #ffffff;
+            border: 1px solid #4b5563;
+        }
+        .summary-card h3, .summary-card h4 {
+            color: #ffffff !important;
+        }
+        .summary-card ul li {
+            color: #d1d5db !important;
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Streamlit component overrides */
+        .stSelectbox > div > div {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+            border: 1px solid #6b7280 !important;
+        }
+        
+        .stNumberInput > div > div > input {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+            border: 1px solid #6b7280 !important;
+        }
+        
+        .stTextInput > div > div > input {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+            border: 1px solid #6b7280 !important;
+        }
+        
+        .stRadio > div {
+            background-color: #1f2937 !important;
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid #4b5563;
+        }
+        
+        .stRadio label {
+            color: #ffffff !important;
+        }
+        
+        .stCheckbox label {
+            color: #ffffff !important;
+        }
+        
+        .stSlider > div > div > div {
+            background-color: #374151 !important;
+        }
+        
+        /* Sidebar styling */
+        .css-1d391kg {
+            background-color: #1f2937 !important;
+        }
+        
+        .css-1d391kg .stSelectbox label {
+            color: #ffffff !important;
+        }
+        
+        /* Dataframe styling */
+        .stDataFrame {
+            background-color: #1f2937 !important;
+        }
+        
+        .stDataFrame table {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+        }
+        
+        .stDataFrame th {
+            background-color: #4b5563 !important;
+            color: #ffffff !important;
+        }
+        
+        .stDataFrame td {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+        }
+        
+        /* Button styling */
+        .stButton > button {
+            background-color: #3b82f6 !important;
+            color: #ffffff !important;
+            border: none !important;
             border-radius: 8px !important;
         }
-
-        .stNumberInput input:focus, .stTextInput input:focus {
-            border-color: rgba(6, 182, 212, 0.8) !important;
-            box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2) !important;
+        
+        .stButton > button:hover {
+            background-color: #2563eb !important;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+        }
+        
+        /* Expander styling */
+        .streamlit-expanderHeader {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+            border: 1px solid #6b7280 !important;
+        }
+        
+        .streamlit-expanderContent {
+            background-color: #1f2937 !important;
+            border: 1px solid #4b5563 !important;
+        }
+        
+        /* Metric styling */
+        .css-1xarl3l {
+            background-color: #1f2937 !important;
+            padding: 1rem !important;
+            border-radius: 8px !important;
+            border: 1px solid #4b5563 !important;
+        }
+        
+        /* Success/Warning/Error message styling */
+        .stSuccess {
+            background-color: #065f46 !important;
+            color: #ffffff !important;
+            border: 1px solid #10b981 !important;
+        }
+        
+        .stWarning {
+            background-color: #92400e !important;
+            color: #ffffff !important;
+            border: 1px solid #f59e0b !important;
+        }
+        
+        .stError {
+            background-color: #991b1b !important;
+            color: #ffffff !important;
+            border: 1px solid #ef4444 !important;
+        }
+        
+        .stInfo {
+            background-color: #1e40af !important;
+            color: #ffffff !important;
+            border: 1px solid #3b82f6 !important;
+        }
+        
+        /* Chat input styling */
+        .stChatInput > div > div {
+            background-color: #374151 !important;
+            border: 1px solid #6b7280 !important;
+        }
+        
+        .stChatInput input {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+        }
+        
+        /* File uploader styling */
+        .stFileUploader > div {
+            background-color: #374151 !important;
+            border: 2px dashed #6b7280 !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader label {
+            color: #ffffff !important;
+        }
+        
+        /* Plotly chart background */
+        .js-plotly-plot {
+            background-color: #1f2937 !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
 # Load environment variables
 load_dotenv()
+working_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Initialize Supabase client
-supabase_client: Optional[Client] = None
-if SUPABASE_AVAILABLE:
+# Ensure GPU availability
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True  # Optimize GPU performance
+
+def load_groq_api_key():
+    """
+    Loads the GROQ API key from config.json or environment variables.
+    
+    Returns:
+        str: GROQ API key or None if not found
+    """
     try:
-        supabase_url = os.getenv("VITE_SUPABASE_URL")
-        supabase_key = os.getenv("VITE_SUPABASE_ANON_KEY")
-        if supabase_url and supabase_key:
-            supabase_client = create_client(supabase_url, supabase_key)
-    except Exception as e:
-        if not TEST_MODE:
-            st.warning("Supabase not configured. Data will not be persisted.")
+        with open(os.path.join(working_dir, "config.json"), "r") as f:
+            return json.load(f).get("GROQ_API_KEY")
+    except FileNotFoundError:
+        return os.getenv("GROQ_API_KEY")
 
+groq_api_key = load_groq_api_key() if not TEST_MODE else "test_key"
 
-class MarketDataService:
-    """Real-time market data integration"""
+# ===================================================================
+# === PDF AUTO ANALYZER - ENHANCEMENT ===
+# ===================================================================
 
-    @staticmethod
-    def get_stock_price(symbol: str) -> Optional[float]:
-        """Get current stock price"""
-        if not MARKET_DATA_AVAILABLE:
-            return None
+def extract_financial_entities_from_text(text: str) -> Dict[str, Any]:
+    """
+    Extract financial entities from text using pattern matching and NLP.
+
+    Args:
+        text: Extracted text from PDF
+
+    Returns:
+        Dict containing extracted financial data
+    """
+    import re
+
+    extracted_data = {
+        "income": [],
+        "expenses": {},
+        "investments": [],
+        "debts": [],
+        "assets": []
+    }
+
+    # Normalize text
+    text = text.lower()
+
+    # Extract income patterns
+    income_patterns = [
+        r'salary[:\s]+\$?([\d,]+\.?\d*)',
+        r'income[:\s]+\$?([\d,]+\.?\d*)',
+        r'earnings[:\s]+\$?([\d,]+\.?\d*)',
+        r'wages[:\s]+\$?([\d,]+\.?\d*)',
+        r'gross pay[:\s]+\$?([\d,]+\.?\d*)',
+    ]
+
+    for pattern in income_patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            try:
+                amount = float(match.replace(',', ''))
+                if amount > 0:
+                    extracted_data["income"].append(amount)
+            except ValueError:
+                pass
+
+    # Extract expense categories
+    expense_categories = {
+        "housing": [r'rent[:\s]+\$?([\d,]+\.?\d*)', r'mortgage[:\s]+\$?([\d,]+\.?\d*)'],
+        "utilities": [r'utilit(?:y|ies)[:\s]+\$?([\d,]+\.?\d*)', r'electric[:\s]+\$?([\d,]+\.?\d*)', r'water[:\s]+\$?([\d,]+\.?\d*)'],
+        "food": [r'food[:\s]+\$?([\d,]+\.?\d*)', r'groceries[:\s]+\$?([\d,]+\.?\d*)', r'dining[:\s]+\$?([\d,]+\.?\d*)'],
+        "transportation": [r'transportation[:\s]+\$?([\d,]+\.?\d*)', r'car payment[:\s]+\$?([\d,]+\.?\d*)', r'gas[:\s]+\$?([\d,]+\.?\d*)'],
+        "insurance": [r'insurance[:\s]+\$?([\d,]+\.?\d*)', r'health insurance[:\s]+\$?([\d,]+\.?\d*)'],
+        "entertainment": [r'entertainment[:\s]+\$?([\d,]+\.?\d*)', r'leisure[:\s]+\$?([\d,]+\.?\d*)'],
+    }
+
+    for category, patterns in expense_categories.items():
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            for match in matches:
+                try:
+                    amount = float(match.replace(',', ''))
+                    if amount > 0:
+                        if category not in extracted_data["expenses"]:
+                            extracted_data["expenses"][category] = 0
+                        extracted_data["expenses"][category] += amount
+                except ValueError:
+                    pass
+
+    # Extract debt information
+    debt_patterns = [
+        r'credit card.*\$?([\d,]+\.?\d*)',
+        r'loan.*\$?([\d,]+\.?\d*)',
+        r'debt.*\$?([\d,]+\.?\d*)',
+        r'balance.*\$?([\d,]+\.?\d*)',
+    ]
+
+    for pattern in debt_patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            try:
+                amount = float(match.replace(',', ''))
+                if amount > 0:
+                    extracted_data["debts"].append(amount)
+            except ValueError:
+                pass
+
+    # Extract investment information
+    investment_patterns = [
+        r'401\(?k\)?[:\s]+\$?([\d,]+\.?\d*)',
+        r'ira[:\s]+\$?([\d,]+\.?\d*)',
+        r'stocks?[:\s]+\$?([\d,]+\.?\d*)',
+        r'bonds?[:\s]+\$?([\d,]+\.?\d*)',
+        r'investment[s]?[:\s]+\$?([\d,]+\.?\d*)',
+        r'portfolio[:\s]+\$?([\d,]+\.?\d*)',
+    ]
+
+    for pattern in investment_patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            try:
+                amount = float(match.replace(',', ''))
+                if amount > 0:
+                    extracted_data["investments"].append(amount)
+            except ValueError:
+                pass
+
+    return extracted_data
+
+def process_pdf_and_extract_financials(uploaded_file) -> Tuple[str, Dict[str, Any]]:
+    """
+    Process uploaded PDF and extract financial data.
+
+    Args:
+        uploaded_file: Streamlit uploaded file object
+
+    Returns:
+        Tuple of (extracted_text, financial_data)
+    """
+    # Save uploaded file temporarily
+    safe_filename = f"{uuid.uuid4().hex}_{uploaded_file.name}"
+    file_path = os.path.join(tempfile.gettempdir(), safe_filename)
+
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+
+    try:
+        # Extract text from PDF
+        extracted_text = extract_text_from_pdf(file_path)
+        full_text = "\n".join(extracted_text)
+
+        # Extract financial entities
+        financial_data = extract_financial_entities_from_text(full_text)
+
+        return full_text, financial_data
+    finally:
+        # Clean up temporary file
         try:
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(period="1d")
-            if not data.empty:
-                return float(data['Close'].iloc[-1])
-        except Exception:
+            os.remove(file_path)
+        except:
             pass
-        return None
 
-    @staticmethod
-    def get_portfolio_value(holdings: Dict[str, float]) -> Dict[str, Any]:
-        """Calculate total portfolio value with real-time prices"""
-        if not MARKET_DATA_AVAILABLE:
-            return {"total_value": 0, "holdings": {}}
+# ===================================================================
+# === STRUCTURED AI OUTPUT & RECOMMENDATIONS - ENHANCEMENT ===
+# ===================================================================
 
-        portfolio_value = 0
-        holdings_data = {}
+def generate_comprehensive_ai_analysis(financial_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Master AI analysis function using structured prompts.
 
-        for symbol, shares in holdings.items():
-            price = MarketDataService.get_stock_price(symbol)
-            if price:
-                value = price * shares
-                portfolio_value += value
-                holdings_data[symbol] = {
-                    "shares": shares,
-                    "price": price,
-                    "value": value
-                }
+    Args:
+        financial_data: Complete financial data dictionary
 
-        return {
-            "total_value": portfolio_value,
-            "holdings": holdings_data,
-            "last_updated": datetime.now().isoformat()
-        }
+    Returns:
+        Structured JSON output with summary, metrics, visualizations, and recommendations
+    """
+    if not groq_api_key or TEST_MODE:
+        return generate_fallback_analysis(financial_data)
 
-    @staticmethod
-    def get_market_data(symbol: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        """Get historical market data"""
-        if not MARKET_DATA_AVAILABLE:
-            return None
+    try:
+        # Initialize LLM
+        llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            temperature=0.2,
+            groq_api_key=groq_api_key
+        )
+
+        # Create master prompt
+        system_prompt = """You are an advanced autonomous AI Financial Analyst.
+Analyze the provided financial data, generate visual and narrative insights, compute key metrics, and propose 3-5 actionable improvements.
+Always output valid JSON with keys: ai_summary, visual_plan, recommendations, qa_context.
+
+The visual_plan should include:
+- charts: array of chart types to display
+- key_metrics: object with calculated financial ratios
+
+The recommendations should be specific, quantified, and actionable."""
+
+        user_prompt = f"""
+Analyze this financial data and provide comprehensive insights:
+
+Financial Data (JSON):
+{json.dumps(financial_data, indent=2, default=str)}
+
+Calculate and provide:
+1. Savings Rate = (Income - Total Expenses) / Income * 100
+2. Debt-to-Income Ratio = Total Debt / Annual Income
+3. Emergency Fund Coverage = Savings / Monthly Expenses (in months)
+4. Financial Health Score (0-100)
+
+Output Format (MUST be valid JSON):
+{{
+    "ai_summary": "2-3 paragraph narrative summary of financial health",
+    "visual_plan": {{
+        "charts": ["income_vs_expense", "expense_pie", "savings_gauge", "debt_ratio"],
+        "key_metrics": {{
+            "savings_rate": 0.18,
+            "dti": 0.35,
+            "emergency_fund_months": 3.5,
+            "financial_health_score": 75
+        }}
+    }},
+    "recommendations": [
+        "Specific recommendation 1 with numbers",
+        "Specific recommendation 2 with numbers",
+        "Specific recommendation 3 with numbers"
+    ],
+    "qa_context": "Full detailed context for conversational follow-up questions"
+}}
+"""
+
+        # Call LLM
+        response = llm.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ])
+
+        response_text = response.content.strip()
+
+        # Parse JSON response
+        import re
         try:
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(period=period)
-            return data
-        except Exception:
-            return None
-
-    @staticmethod
-    def calculate_returns(data: pd.DataFrame) -> Dict[str, float]:
-        """Calculate various return metrics"""
-        if data is None or data.empty:
-            return {}
-
-        returns = data['Close'].pct_change().dropna()
-
-        return {
-            "daily_return_mean": float(returns.mean()),
-            "daily_return_std": float(returns.std()),
-            "cumulative_return": float((data['Close'].iloc[-1] / data['Close'].iloc[0]) - 1),
-            "sharpe_ratio": float(returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0,
-            "max_drawdown": float((data['Close'] / data['Close'].cummax() - 1).min())
-        }
-
-
-class AdvancedCalculator:
-    """Advanced financial calculations with ML predictions"""
-
-    @staticmethod
-    def monte_carlo_simulation(
-        initial_value: float,
-        annual_return: float,
-        volatility: float,
-        years: int,
-        annual_contribution: float = 0,
-        simulations: int = 1000
-    ) -> Dict[str, Any]:
-        """Run Monte Carlo simulation for portfolio projections"""
-
-        results = []
-        months = years * 12
-        monthly_return = annual_return / 12
-        monthly_volatility = volatility / np.sqrt(12)
-        monthly_contribution = annual_contribution / 12
-
-        for _ in range(simulations):
-            portfolio_value = initial_value
-            trajectory = [portfolio_value]
-
-            for month in range(months):
-                random_return = np.random.normal(monthly_return, monthly_volatility)
-                portfolio_value = portfolio_value * (1 + random_return) + monthly_contribution
-                trajectory.append(portfolio_value)
-
-            results.append(trajectory)
-
-        results_array = np.array(results)
-
-        return {
-            "mean_trajectory": results_array.mean(axis=0).tolist(),
-            "median_trajectory": np.median(results_array, axis=0).tolist(),
-            "percentile_10": np.percentile(results_array, 10, axis=0).tolist(),
-            "percentile_25": np.percentile(results_array, 25, axis=0).tolist(),
-            "percentile_75": np.percentile(results_array, 75, axis=0).tolist(),
-            "percentile_90": np.percentile(results_array, 90, axis=0).tolist(),
-            "final_values": results_array[:, -1].tolist(),
-            "probability_of_success": float(np.mean(results_array[:, -1] >= initial_value * (1 + annual_return) ** years))
-        }
-
-    @staticmethod
-    def optimize_portfolio(
-        expected_returns: List[float],
-        covariance_matrix: List[List[float]],
-        risk_free_rate: float = 0.02
-    ) -> Dict[str, Any]:
-        """Modern Portfolio Theory optimization"""
-
-        n_assets = len(expected_returns)
-        returns = np.array(expected_returns)
-        cov_matrix = np.array(covariance_matrix)
-
-        # Generate random portfolios
-        n_portfolios = 10000
-        results = np.zeros((3, n_portfolios))
-        weights_record = []
-
-        for i in range(n_portfolios):
-            weights = np.random.random(n_assets)
-            weights /= np.sum(weights)
-            weights_record.append(weights)
-
-            portfolio_return = np.sum(weights * returns)
-            portfolio_std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-            sharpe = (portfolio_return - risk_free_rate) / portfolio_std
-
-            results[0, i] = portfolio_return
-            results[1, i] = portfolio_std
-            results[2, i] = sharpe
-
-        max_sharpe_idx = np.argmax(results[2])
-
-        return {
-            "optimal_weights": weights_record[max_sharpe_idx].tolist(),
-            "expected_return": float(results[0, max_sharpe_idx]),
-            "expected_volatility": float(results[1, max_sharpe_idx]),
-            "sharpe_ratio": float(results[2, max_sharpe_idx]),
-            "all_returns": results[0].tolist(),
-            "all_volatility": results[1].tolist(),
-            "all_sharpe": results[2].tolist()
-        }
-
-    @staticmethod
-    def calculate_tax_optimization(
-        income: float,
-        deductions: Dict[str, float],
-        retirement_contributions: float,
-        state: str = "CA"
-    ) -> Dict[str, Any]:
-        """Calculate tax optimization strategies"""
-
-        # 2024 Federal tax brackets (simplified)
-        federal_brackets = [
-            (11000, 0.10),
-            (44725, 0.12),
-            (95375, 0.22),
-            (182100, 0.24),
-            (231250, 0.32),
-            (578125, 0.35),
-            (float('inf'), 0.37)
-        ]
-
-        # Calculate taxable income
-        standard_deduction = 14600  # 2024 single filer
-        total_deductions = sum(deductions.values())
-        adjusted_gross_income = income - retirement_contributions
-        taxable_income = max(0, adjusted_gross_income - max(standard_deduction, total_deductions))
-
-        # Calculate federal tax
-        federal_tax = 0
-        prev_bracket = 0
-        for bracket_limit, rate in federal_brackets:
-            if taxable_income <= bracket_limit:
-                federal_tax += (taxable_income - prev_bracket) * rate
-                break
+            # Extract JSON from response
+            if response_text.startswith("{") and response_text.endswith("}"):
+                ai_result = json.loads(response_text)
             else:
-                federal_tax += (bracket_limit - prev_bracket) * rate
-                prev_bracket = bracket_limit
-
-        # State tax (simplified - varies by state)
-        state_tax_rate = 0.093 if state == "CA" else 0.05
-        state_tax = taxable_income * state_tax_rate
-
-        total_tax = federal_tax + state_tax
-        effective_rate = total_tax / income if income > 0 else 0
-
-        # Tax savings from retirement contributions
-        marginal_rate = 0.22  # Simplified
-        retirement_tax_savings = retirement_contributions * marginal_rate
-
-        return {
-            "adjusted_gross_income": adjusted_gross_income,
-            "taxable_income": taxable_income,
-            "federal_tax": federal_tax,
-            "state_tax": state_tax,
-            "total_tax": total_tax,
-            "effective_tax_rate": effective_rate,
-            "retirement_tax_savings": retirement_tax_savings,
-            "recommendations": [
-                f"Maximize 401(k) contributions (up to $23,000)" if retirement_contributions < 23000 else "✓ Maximizing 401(k)",
-                f"Consider HSA contributions (up to $4,150)" if income > 50000 else "Consider HSA when income increases",
-                "Look into tax-loss harvesting for investments" if taxable_income > 50000 else "Not applicable at current income level"
-            ]
-        }
-
-    @staticmethod
-    def calculate_fire_number(
-        annual_expenses: float,
-        withdrawal_rate: float = 0.04,
-        inflation_adjusted: bool = True
-    ) -> Dict[str, Any]:
-        """Calculate Financial Independence Retire Early (FIRE) metrics"""
-
-        fire_number = annual_expenses / withdrawal_rate
-
-        # Different FIRE levels
-        lean_fire = annual_expenses * 0.7 / withdrawal_rate
-        fat_fire = annual_expenses * 1.5 / withdrawal_rate
-
-        return {
-            "fire_number": fire_number,
-            "lean_fire": lean_fire,
-            "fat_fire": fat_fire,
-            "monthly_expenses_covered": annual_expenses / 12,
-            "safe_withdrawal_amount": fire_number * withdrawal_rate,
-            "years_of_expenses": 1 / withdrawal_rate
-        }
-
-
-class AIInsightsEngine:
-    """Advanced AI-powered financial insights"""
-
-    @staticmethod
-    def get_ai_analysis(
-        data: Dict[str, Any],
-        context: str,
-        model: str = "llama-3.3-70b-versatile"
-    ) -> Dict[str, Any]:
-        """Get comprehensive AI analysis"""
-
-        if not AI_AVAILABLE or not os.getenv("GROQ_API_KEY"):
-            return {
-                "score": None,
-                "analysis": "AI analysis unavailable. Install dependencies and configure API key.",
-                "recommendations": ["Configure GROQ_API_KEY to enable AI insights"],
-                "risks": [],
-                "opportunities": []
-            }
-
-        try:
-            llm = ChatGroq(model=model, temperature=0.2, groq_api_key=os.getenv("GROQ_API_KEY"))
-
-            prompt = f"""
-            As an expert financial advisor, analyze this {context} data:
-
-            {json.dumps(data, indent=2)}
-
-            Provide a comprehensive analysis with:
-            1. A score from 0-100 (where 100 is excellent)
-            2. Detailed analysis (3-4 sentences)
-            3. Top 5 specific actionable recommendations
-            4. Top 3 financial risks to be aware of
-            5. Top 3 opportunities for improvement
-
-            Return ONLY valid JSON with keys: score, analysis, recommendations, risks, opportunities
-            """
-
-            response = llm.invoke(prompt)
-            result = json.loads(response.content)
+                # Try to find JSON block
+                json_match = re.search(r'\{[\s\S]*\}', response_text)
+                if json_match:
+                    ai_result = json.loads(json_match.group())
+                else:
+                    return generate_fallback_analysis(financial_data)
 
             # Validate structure
-            if all(k in result for k in ["score", "analysis", "recommendations", "risks", "opportunities"]):
-                return result
+            required_keys = ["ai_summary", "visual_plan", "recommendations", "qa_context"]
+            if not all(key in ai_result for key in required_keys):
+                return generate_fallback_analysis(financial_data)
 
-        except Exception as e:
-            if not TEST_MODE:
-                st.error(f"AI analysis error: {str(e)}")
+            return ai_result
 
-        return {
-            "score": None,
-            "analysis": "Unable to generate AI analysis at this time.",
-            "recommendations": ["Review your financial data manually"],
-            "risks": ["Unable to assess risks"],
-            "opportunities": ["Unable to identify opportunities"]
-        }
+        except json.JSONDecodeError:
+            return generate_fallback_analysis(financial_data)
 
+    except Exception as e:
+        if not TEST_MODE:
+            st.warning(f"AI analysis temporarily unavailable: {str(e)}")
+        return generate_fallback_analysis(financial_data)
 
-class DataPersistenceService:
-    """Handle data persistence with Supabase"""
+def generate_fallback_analysis(financial_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate deterministic analysis when AI is unavailable"""
+    income = financial_data.get("monthly_income", 0)
+    expenses = financial_data.get("expenses", {})
+    total_expenses = sum(expenses.values()) if isinstance(expenses, dict) else 0
+    debts = financial_data.get("debts", [])
+    total_debt = sum(debts) if isinstance(debts, list) else 0
 
-    @staticmethod
-    def save_user_data(user_id: str, data_type: str, data: Dict[str, Any]) -> bool:
-        """Save user financial data"""
-        if not supabase_client:
-            return False
+    savings = income - total_expenses
+    savings_rate = (savings / income * 100) if income > 0 else 0
+    dti = (total_debt / (income * 12)) if income > 0 else 0
+    emergency_fund_months = (financial_data.get("savings", 0) / total_expenses) if total_expenses > 0 else 0
 
-        try:
-            supabase_client.table('financial_data').upsert({
-                'user_id': user_id,
-                'data_type': data_type,
-                'data': data,
-                'updated_at': datetime.now().isoformat()
-            }).execute()
-            return True
-        except Exception:
-            return False
+    # Calculate financial health score
+    score = 50
+    if savings_rate > 20:
+        score += 20
+    elif savings_rate > 10:
+        score += 10
+    if dti < 0.36:
+        score += 15
+    if emergency_fund_months >= 3:
+        score += 15
 
-    @staticmethod
-    def load_user_data(user_id: str, data_type: str) -> Optional[Dict[str, Any]]:
-        """Load user financial data"""
-        if not supabase_client:
-            return None
+    return {
+        "ai_summary": f"Your current financial health shows a savings rate of {savings_rate:.1f}% and a debt-to-income ratio of {dti:.1%}. You have approximately {emergency_fund_months:.1f} months of emergency fund coverage. {'You are on a good financial path.' if score >= 70 else 'There is room for improvement in your financial planning.'}",
+        "visual_plan": {
+            "charts": ["income_vs_expense", "expense_pie", "savings_gauge", "debt_ratio"],
+            "key_metrics": {
+                "savings_rate": round(savings_rate, 2),
+                "dti": round(dti, 2),
+                "emergency_fund_months": round(emergency_fund_months, 2),
+                "financial_health_score": score
+            }
+        },
+        "recommendations": [
+            f"Increase savings rate to 20% by reducing discretionary spending by ${(0.20 * income - savings):.0f}/month" if savings_rate < 20 else "Maintain your excellent savings rate",
+            f"Build emergency fund to 6 months of expenses (${total_expenses * 6:.0f})" if emergency_fund_months < 6 else "Your emergency fund is well-established",
+            f"Focus on paying down debt to reduce DTI below 36%" if dti > 0.36 else "Your debt levels are manageable"
+        ],
+        "qa_context": f"User has monthly income of ${income:.0f}, total expenses of ${total_expenses:.0f}, savings of ${savings:.0f}, and total debt of ${total_debt:.0f}. Savings rate is {savings_rate:.1f}% and DTI is {dti:.1%}."
+    }
 
-        try:
-            response = supabase_client.table('financial_data').select('*').eq('user_id', user_id).eq('data_type', data_type).execute()
-            if response.data:
-                return response.data[0]['data']
-        except Exception:
-            pass
-        return None
+# ===================================================================
+# === DIGITAL REPORT & VISUALIZATION - ENHANCEMENT ===
+# ===================================================================
 
+def create_enhanced_financial_visualizations(financial_data: Dict[str, Any], ai_analysis: Dict[str, Any]):
+    """
+    Display comprehensive digital financial report with visualizations.
 
-class AdvancedVisualizer:
-    """Advanced interactive visualizations"""
+    Args:
+        financial_data: Raw financial data
+        ai_analysis: AI-generated analysis with metrics
+    """
+    st.markdown("---")
+    st.markdown("## 📊 Your Enhanced Financial Report")
 
-    @staticmethod
-    def create_portfolio_dashboard(portfolio_data: Dict[str, Any]) -> go.Figure:
-        """Create comprehensive portfolio dashboard"""
+    # Display AI Summary
+    st.markdown('<div class="ai-suggestions-card">', unsafe_allow_html=True)
+    st.markdown("### 🤖 AI Financial Analysis")
+    st.write(ai_analysis.get("ai_summary", "Analysis not available"))
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Asset Allocation', 'Portfolio Performance',
-                          'Risk Metrics', 'Projected Growth'),
-            specs=[[{'type': 'pie'}, {'type': 'scatter'}],
-                   [{'type': 'bar'}, {'type': 'scatter'}]]
-        )
-
-        # Asset allocation pie chart
-        if 'holdings' in portfolio_data:
-            holdings = portfolio_data['holdings']
-            fig.add_trace(
-                go.Pie(
-                    labels=list(holdings.keys()),
-                    values=[h['value'] for h in holdings.values()],
-                    hole=0.4
-                ),
-                row=1, col=1
-            )
-
-        # Performance line chart
-        if 'performance' in portfolio_data:
-            perf = portfolio_data['performance']
-            fig.add_trace(
-                go.Scatter(
-                    x=perf['dates'],
-                    y=perf['values'],
-                    mode='lines',
-                    fill='tozeroy',
-                    line=dict(color='#3b82f6', width=3)
-                ),
-                row=1, col=2
-            )
-
-        fig.update_layout(
-            height=800,
-            showlegend=True,
-            template='plotly_dark',
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
-        )
-
-        return fig
-
-    @staticmethod
-    def create_monte_carlo_chart(simulation_results: Dict[str, Any]) -> go.Figure:
-        """Visualize Monte Carlo simulation results"""
-
-        months = len(simulation_results['mean_trajectory'])
-        x_data = list(range(months))
-
-        fig = go.Figure()
-
-        # Add percentile bands
-        fig.add_trace(go.Scatter(
-            x=x_data + x_data[::-1],
-            y=simulation_results['percentile_90'] + simulation_results['percentile_10'][::-1],
-            fill='toself',
-            fillcolor='rgba(59, 130, 246, 0.1)',
-            line=dict(color='rgba(255,255,255,0)'),
-            name='10-90 Percentile',
-            showlegend=True
-        ))
-
-        fig.add_trace(go.Scatter(
-            x=x_data + x_data[::-1],
-            y=simulation_results['percentile_75'] + simulation_results['percentile_25'][::-1],
-            fill='toself',
-            fillcolor='rgba(59, 130, 246, 0.2)',
-            line=dict(color='rgba(255,255,255,0)'),
-            name='25-75 Percentile',
-            showlegend=True
-        ))
-
-        # Add median line
-        fig.add_trace(go.Scatter(
-            x=x_data,
-            y=simulation_results['median_trajectory'],
-            line=dict(color='#10b981', width=3),
-            name='Median Outcome'
-        ))
-
-        # Add mean line
-        fig.add_trace(go.Scatter(
-            x=x_data,
-            y=simulation_results['mean_trajectory'],
-            line=dict(color='#f59e0b', width=2, dash='dash'),
-            name='Average Outcome'
-        ))
-
-        fig.update_layout(
-            title='Monte Carlo Simulation: Portfolio Projections',
-            xaxis_title='Months',
-            yaxis_title='Portfolio Value ($)',
-            template='plotly_dark',
-            height=500,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(30, 41, 59, 0.5)',
-            hovermode='x unified'
-        )
-
-        return fig
-
-    @staticmethod
-    def create_tax_breakdown_chart(tax_data: Dict[str, Any]) -> go.Figure:
-        """Create interactive tax breakdown visualization"""
-
-        fig = go.Figure()
-
-        categories = ['Gross Income', 'After Deductions', 'After Federal Tax', 'After State Tax']
-        values = [
-            tax_data.get('adjusted_gross_income', 0),
-            tax_data.get('taxable_income', 0),
-            tax_data.get('taxable_income', 0) - tax_data.get('federal_tax', 0),
-            tax_data.get('taxable_income', 0) - tax_data.get('total_tax', 0)
-        ]
-
-        fig.add_trace(go.Waterfall(
-            x=categories,
-            y=[values[0], values[1]-values[0], -tax_data.get('federal_tax', 0), -tax_data.get('state_tax', 0)],
-            connector={"line": {"color": "rgb(63, 63, 63)"}},
-            decreasing={"marker": {"color": "#ef4444"}},
-            increasing={"marker": {"color": "#10b981"}},
-            totals={"marker": {"color": "#3b82f6"}}
-        ))
-
-        fig.update_layout(
-            title='Tax Breakdown Waterfall',
-            showlegend=False,
-            template='plotly_dark',
-            height=400,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(30, 41, 59, 0.5)'
-        )
-
-        return fig
-
-
-class ReportGenerator:
-    """Generate comprehensive financial reports"""
-
-    @staticmethod
-    def generate_pdf_report(user_data: Dict[str, Any], filename: str = "financial_report.pdf") -> Optional[str]:
-        """Generate PDF financial report"""
-        if not PDF_AVAILABLE:
-            return None
-
-        try:
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", "B", 24)
-            pdf.cell(0, 20, "Financial Analysis Report", ln=True, align="C")
-
-            pdf.set_font("Arial", "", 12)
-            pdf.cell(0, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
-            pdf.ln(10)
-
-            # Add sections
-            sections = [
-                ("Portfolio Summary", user_data.get('portfolio', {})),
-                ("Budget Analysis", user_data.get('budget', {})),
-                ("Tax Summary", user_data.get('tax', {})),
-                ("Recommendations", user_data.get('recommendations', []))
-            ]
-
-            for title, data in sections:
-                pdf.set_font("Arial", "B", 16)
-                pdf.cell(0, 10, title, ln=True)
-                pdf.set_font("Arial", "", 11)
-
-                if isinstance(data, dict):
-                    for key, value in data.items():
-                        pdf.cell(0, 8, f"{key}: {value}", ln=True)
-                elif isinstance(data, list):
-                    for item in data:
-                        pdf.cell(0, 8, f"• {item}", ln=True)
-
-                pdf.ln(5)
-
-            pdf.output(filename)
-            return filename
-        except Exception as e:
-            if not TEST_MODE:
-                st.error(f"PDF generation error: {str(e)}")
-            return None
-
-    @staticmethod
-    def export_to_excel(data: Dict[str, pd.DataFrame], filename: str = "financial_data.xlsx") -> Optional[str]:
-        """Export data to Excel with multiple sheets"""
-        try:
-            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-                for sheet_name, df in data.items():
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-            return filename
-        except Exception:
-            return None
-
-
-def main():
-    """Main application"""
-
-    if TEST_MODE:
-        print("✅ Advanced Financial Advisor loaded successfully")
-        return
-
-    # Header
-    st.markdown('<h1 class="main-header">💎 Advanced AI Financial Advisor</h1>', unsafe_allow_html=True)
-
-    # Sidebar navigation
-    st.sidebar.title("🎯 Navigation")
-
-    # User authentication (simplified)
-    if 'user_id' not in st.session_state:
-        st.session_state.user_id = f"user_{hash(datetime.now())}"
-
-    page = st.sidebar.radio(
-        "Select Module",
-        ["🏠 Dashboard", "📊 Portfolio Analysis", "🎲 Monte Carlo Simulation",
-         "💰 Tax Optimization", "🎯 FIRE Calculator", "📈 Market Data",
-         "🤖 AI Insights", "📄 Reports & Export"]
-    )
-
-    # Main content
-    if page == "🏠 Dashboard":
-        render_dashboard()
-    elif page == "📊 Portfolio Analysis":
-        render_portfolio_analysis()
-    elif page == "🎲 Monte Carlo Simulation":
-        render_monte_carlo()
-    elif page == "💰 Tax Optimization":
-        render_tax_optimization()
-    elif page == "🎯 FIRE Calculator":
-        render_fire_calculator()
-    elif page == "📈 Market Data":
-        render_market_data()
-    elif page == "🤖 AI Insights":
-        render_ai_insights()
-    elif page == "📄 Reports & Export":
-        render_reports()
-
-
-def render_dashboard():
-    """Render main dashboard"""
-    st.header("📊 Financial Dashboard")
+    # Display Key Metrics
+    st.markdown("### 📈 Key Financial Metrics")
+    metrics = ai_analysis.get("visual_plan", {}).get("key_metrics", {})
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.markdown("""
-        <div class="metric-card">
-            <h3>Net Worth</h3>
-            <h2>$425,750</h2>
-            <p style="color: #10b981;">↑ 12.5% this year</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            "Savings Rate",
+            f"{metrics.get('savings_rate', 0):.1f}%",
+            delta=f"{metrics.get('savings_rate', 0) - 20:.1f}% vs target"
+        )
 
     with col2:
-        st.markdown("""
-        <div class="metric-card">
-            <h3>Investment Portfolio</h3>
-            <h2>$312,400</h2>
-            <p style="color: #10b981;">↑ 18.2% YTD</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            "Financial Health",
+            f"{metrics.get('financial_health_score', 0):.0f}/100",
+            delta="Good" if metrics.get('financial_health_score', 0) >= 70 else "Needs Work"
+        )
 
     with col3:
-        st.markdown("""
-        <div class="metric-card">
-            <h3>Savings Rate</h3>
-            <h2>32%</h2>
-            <p style="color: #3b82f6;">Excellent</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            "DTI Ratio",
+            f"{metrics.get('dti', 0):.1%}",
+            delta="Healthy" if metrics.get('dti', 0) < 0.36 else "High",
+            delta_color="inverse"
+        )
 
     with col4:
-        st.markdown("""
+        st.metric(
+            "Emergency Fund",
+            f"{metrics.get('emergency_fund_months', 0):.1f} mo",
+            delta="Ready" if metrics.get('emergency_fund_months', 0) >= 3 else "Build Up"
+        )
+
+    # Display Charts
+    st.markdown("### 📊 Visual Analysis")
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        # Income vs Expenses Chart
+        if financial_data.get("monthly_income") and financial_data.get("expenses"):
+            income = financial_data["monthly_income"]
+            expenses = financial_data["expenses"]
+            total_expenses = sum(expenses.values()) if isinstance(expenses, dict) else 0
+
+            fig1 = go.Figure(data=[
+                go.Bar(name='Income', x=['Monthly Cash Flow'], y=[income], marker_color='#10b981', text=[f'${income:,.0f}'], textposition='auto'),
+                go.Bar(name='Expenses', x=['Monthly Cash Flow'], y=[total_expenses], marker_color='#ef4444', text=[f'${total_expenses:,.0f}'], textposition='auto')
+            ])
+            fig1.update_layout(title='Income vs Expenses', barmode='group', plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=400)
+            st.plotly_chart(fig1, use_container_width=True)
+
+        # Savings Rate Gauge
+        fig3 = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=metrics.get('savings_rate', 0),
+            domain={'x': [0, 1], 'y': [0, 1]},
+            title={'text': "Savings Rate (%)"},
+            delta={'reference': 20, 'increasing': {'color': "#10b981"}},
+            gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#3b82f6"}, 'steps': [{'range': [0, 10], 'color': "#ef4444"}, {'range': [10, 20], 'color': "#f59e0b"}, {'range': [20, 100], 'color': "#10b981"}]}
+        ))
+        fig3.update_layout(plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=300)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with chart_col2:
+        # Expense Breakdown Pie
+        if financial_data.get("expenses"):
+            expenses = financial_data["expenses"]
+            if isinstance(expenses, dict) and expenses:
+                labels = list(expenses.keys())
+                values = list(expenses.values())
+                fig2 = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
+                fig2.update_layout(title='Expense Breakdown', plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=400)
+                st.plotly_chart(fig2, use_container_width=True)
+
+        # Debt Ratio Gauge
+        if financial_data.get("debts") and financial_data.get("monthly_income"):
+            total_debt = sum(financial_data["debts"]) if isinstance(financial_data["debts"], list) else financial_data["debts"]
+            dti_ratio = metrics.get('dti', 0) * 100
+            fig4 = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=dti_ratio,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': "Debt-to-Income Ratio (%)"},
+                gauge={'axis': {'range': [None, 50]}, 'bar': {'color': "#3b82f6"}, 'steps': [{'range': [0, 20], 'color': "#10b981"}, {'range': [20, 36], 'color': "#f59e0b"}, {'range': [36, 50], 'color': "#ef4444"}]}
+            ))
+            fig4.update_layout(plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=300)
+            st.plotly_chart(fig4, use_container_width=True)
+
+    # Display Recommendations
+    st.markdown("### 💡 AI Recommendations")
+    recommendations = ai_analysis.get("recommendations", [])
+
+    for i, rec in enumerate(recommendations, 1):
+        st.markdown(f"""
         <div class="metric-card">
-            <h3>FIRE Progress</h3>
-            <h2>67%</h2>
-            <p style="color: #f59e0b;">8 years remaining</p>
+            <h4>Recommendation {i}</h4>
+            <p>{rec}</p>
         </div>
         """, unsafe_allow_html=True)
 
+# ===================================================================
+# === AI CONVERSATION ENGINE - ENHANCEMENT ===
+# ===================================================================
+
+async def get_enhanced_ai_response(user_input: str, financial_context: str = "") -> str:
+    """
+    Get AI response for user query with financial context.
+
+    Args:
+        user_input: User's question
+        financial_context: Additional financial context
+
+    Returns:
+        AI response string
+    """
+    if TEST_MODE:
+        return "This is a test response from the AI assistant."
+
+    try:
+        if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
+            # Enhanced prompt with financial context
+            enhanced_prompt = f"""
+Financial Context: {financial_context}
+
+User Question: {user_input}
+
+Provide specific, actionable financial advice based on the context above.
+"""
+
+            response = await asyncio.to_thread(
+                st.session_state.conversation_chain.invoke,
+                {"question": enhanced_prompt}
+            )
+            return response.get("answer", "I couldn't process that question.")
+        else:
+            # Use direct LLM call without retrieval
+            llm = ChatGroq(
+                model="llama-3.3-70b-versatile",
+                temperature=0.3,
+                groq_api_key=groq_api_key
+            )
+
+            response = llm.invoke(f"""
+You are a helpful financial advisor.
+
+Financial Context: {financial_context}
+
+User Question: {user_input}
+
+Provide clear, actionable advice.
+""")
+            return response.content
+
+    except Exception as e:
+        return f"I apologize, but I encountered an error: {str(e)}. Please try rephrasing your question."
+
+def display_enhanced_chat_interface(financial_context: str):
+    """
+    Display auto-start chat interface with financial context.
+
+    Args:
+        financial_context: QA context from AI analysis
+    """
     st.markdown("---")
-
-    # Quick insights
-    st.subheader("🤖 AI-Powered Quick Insights")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("""
-        <div class="ai-insight-card">
-            <h4>💡 Top Recommendation</h4>
-            <p>Consider increasing your 401(k) contribution by 2% to maximize employer match.
-            This could add $4,800 annually to your retirement savings.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="success-card">
-            <h4>✅ What's Working</h4>
-            <p>Your emergency fund covers 8 months of expenses - excellent financial security!</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Portfolio allocation chart
-    st.subheader("📈 Portfolio Allocation")
-
-    allocation_data = {
-        'Asset Class': ['US Stocks', 'International', 'Bonds', 'Real Estate', 'Cash'],
-        'Allocation': [45, 20, 20, 10, 5],
-        'Value': [140625, 62500, 62500, 31250, 15625]
-    }
-    df = pd.DataFrame(allocation_data)
-
-    fig = px.pie(df, values='Value', names='Asset Class',
-                 color_discrete_sequence=px.colors.sequential.Blues_r)
-    fig.update_layout(
-        template='plotly_dark',
-        paper_bgcolor='rgba(0,0,0,0)',
-        height=400
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_portfolio_analysis():
-    """Render portfolio analysis"""
-    st.header("📊 Advanced Portfolio Analysis")
-
-    st.markdown("""
-    <div class="premium-card">
-        <h3>🎯 Portfolio Optimization with Modern Portfolio Theory</h3>
-        <p>Optimize your asset allocation to maximize returns while minimizing risk.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Input Portfolio Assets")
-
-        num_assets = st.number_input("Number of Assets", min_value=2, max_value=10, value=3)
-
-        expected_returns = []
-        for i in range(num_assets):
-            ret = st.number_input(f"Asset {i+1} Expected Annual Return (%)",
-                                 min_value=0.0, max_value=50.0, value=8.0, key=f"ret_{i}") / 100
-            expected_returns.append(ret)
-
-    with col2:
-        st.subheader("Risk Parameters")
-
-        risk_free_rate = st.number_input("Risk-Free Rate (%)",
-                                        min_value=0.0, max_value=10.0, value=2.5) / 100
-
-        st.info("💡 Using simplified correlation matrix for optimization")
-
-    if st.button("🎯 Optimize Portfolio", type="primary"):
-        with st.spinner("Running optimization..."):
-            # Create simplified covariance matrix
-            volatilities = [0.15, 0.20, 0.18][:num_assets]
-            cov_matrix = np.diag([v**2 for v in volatilities])
-
-            result = AdvancedCalculator.optimize_portfolio(
-                expected_returns,
-                cov_matrix.tolist(),
-                risk_free_rate
-            )
-
-            st.success("✅ Optimization Complete!")
-
-            # Display results
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                st.metric("Expected Return", f"{result['expected_return']:.2%}")
-            with col2:
-                st.metric("Volatility", f"{result['expected_volatility']:.2%}")
-            with col3:
-                st.metric("Sharpe Ratio", f"{result['sharpe_ratio']:.2f}")
-
-            # Optimal weights
-            st.subheader("🎯 Optimal Asset Allocation")
-            weights_df = pd.DataFrame({
-                'Asset': [f'Asset {i+1}' for i in range(num_assets)],
-                'Weight': [f"{w:.1%}" for w in result['optimal_weights']],
-                'Percentage': result['optimal_weights']
-            })
-
-            fig = px.bar(weights_df, x='Asset', y='Percentage',
-                        color='Percentage',
-                        color_continuous_scale='Blues')
-            fig.update_layout(
-                template='plotly_dark',
-                paper_bgcolor='rgba(0,0,0,0)',
-                yaxis_tickformat='.0%'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Efficient frontier
-            st.subheader("📈 Efficient Frontier")
-            frontier_fig = go.Figure()
-
-            frontier_fig.add_trace(go.Scatter(
-                x=result['all_volatility'],
-                y=result['all_returns'],
-                mode='markers',
-                marker=dict(
-                    size=3,
-                    color=result['all_sharpe'],
-                    colorscale='Viridis',
-                    showscale=True,
-                    colorbar=dict(title="Sharpe Ratio")
-                ),
-                name='Possible Portfolios'
-            ))
-
-            frontier_fig.add_trace(go.Scatter(
-                x=[result['expected_volatility']],
-                y=[result['expected_return']],
-                mode='markers',
-                marker=dict(size=20, color='red', symbol='star'),
-                name='Optimal Portfolio'
-            ))
-
-            frontier_fig.update_layout(
-                title='Efficient Frontier',
-                xaxis_title='Volatility (Risk)',
-                yaxis_title='Expected Return',
-                template='plotly_dark',
-                paper_bgcolor='rgba(0,0,0,0)',
-                height=500
-            )
-            st.plotly_chart(frontier_fig, use_container_width=True)
-
-
-def render_monte_carlo():
-    """Render Monte Carlo simulation"""
-    st.header("🎲 Monte Carlo Retirement Simulation")
-
-    st.markdown("""
-    <div class="ai-insight-card">
-        <h4>🎲 What is Monte Carlo Simulation?</h4>
-        <p>Monte Carlo simulation runs thousands of scenarios with randomized market returns
-        to show the range of possible outcomes for your portfolio. This helps you understand
-        the probability of reaching your financial goals.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        initial_value = st.number_input("Current Portfolio Value ($)",
-                                       min_value=0, value=100000, step=5000)
-        annual_contribution = st.number_input("Annual Contribution ($)",
-                                             min_value=0, value=12000, step=1000)
-
-    with col2:
-        annual_return = st.number_input("Expected Annual Return (%)",
-                                       min_value=0.0, max_value=30.0, value=8.0, step=0.5) / 100
-        volatility = st.number_input("Portfolio Volatility (%)",
-                                    min_value=0.0, max_value=50.0, value=15.0, step=1.0) / 100
-
-    with col3:
-        years = st.number_input("Investment Period (years)",
-                               min_value=1, max_value=50, value=30)
-        simulations = st.number_input("Number of Simulations",
-                                     min_value=100, max_value=10000, value=1000, step=100)
-
-    if st.button("🚀 Run Simulation", type="primary"):
-        with st.spinner(f"Running {simulations} simulations..."):
-            results = AdvancedCalculator.monte_carlo_simulation(
-                initial_value, annual_return, volatility, years,
-                annual_contribution, simulations
-            )
-
-            # Display results
-            st.success(f"✅ Simulation Complete! ({simulations} scenarios)")
-
-            col1, col2, col3, col4 = st.columns(4)
-
-            final_values = results['final_values']
-            with col1:
-                st.metric("Median Outcome", f"${np.median(final_values):,.0f}")
-            with col2:
-                st.metric("Average Outcome", f"${np.mean(final_values):,.0f}")
-            with col3:
-                st.metric("Best Case (90th %)", f"${np.percentile(final_values, 90):,.0f}")
-            with col4:
-                st.metric("Worst Case (10th %)", f"${np.percentile(final_values, 10):,.0f}")
-
-            # Probability metrics
-            st.markdown("---")
-            col1, col2, col3 = st.columns(3)
-
-            target_1m = np.mean(np.array(final_values) >= 1000000) * 100
-            target_2m = np.mean(np.array(final_values) >= 2000000) * 100
-            target_500k = np.mean(np.array(final_values) >= 500000) * 100
-
-            with col1:
-                st.markdown(f"""
-                <div class="success-card">
-                    <h4>$500K+ Probability</h4>
-                    <h2>{target_500k:.1f}%</h2>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with col2:
-                st.markdown(f"""
-                <div class="success-card">
-                    <h4>$1M+ Probability</h4>
-                    <h2>{target_1m:.1f}%</h2>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with col3:
-                st.markdown(f"""
-                <div class="success-card">
-                    <h4>$2M+ Probability</h4>
-                    <h2>{target_2m:.1f}%</h2>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # Visualization
-            fig = AdvancedVisualizer.create_monte_carlo_chart(results)
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Distribution histogram
-            st.subheader("📊 Final Value Distribution")
-            hist_fig = px.histogram(
-                x=final_values,
-                nbins=50,
-                labels={'x': 'Final Portfolio Value', 'y': 'Frequency'},
-                color_discrete_sequence=['#3b82f6']
-            )
-            hist_fig.update_layout(
-                template='plotly_dark',
-                paper_bgcolor='rgba(0,0,0,0)',
-                showlegend=False
-            )
-            st.plotly_chart(hist_fig, use_container_width=True)
-
-
-def render_tax_optimization():
-    """Render tax optimization tool"""
-    st.header("💰 Tax Optimization & Planning")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Income & Contributions")
-        annual_income = st.number_input("Annual Gross Income ($)",
-                                       min_value=0, value=100000, step=5000)
-        retirement_401k = st.number_input("401(k) Contributions ($)",
-                                         min_value=0, max_value=23000, value=10000, step=1000)
-
-        st.subheader("Deductions")
-        mortgage_interest = st.number_input("Mortgage Interest ($)",
-                                           min_value=0, value=8000, step=500)
-        charitable = st.number_input("Charitable Donations ($)",
-                                     min_value=0, value=3000, step=500)
-        state_tax_paid = st.number_input("State/Local Taxes Paid ($)",
-                                        min_value=0, value=5000, step=500)
-
-    with col2:
-        st.subheader("Additional Information")
-        state = st.selectbox("State", ["CA", "NY", "TX", "FL", "WA", "Other"])
-        filing_status = st.selectbox("Filing Status",
-                                     ["Single", "Married Filing Jointly", "Head of Household"])
-
-        st.info("💡 Tax calculations use 2024 federal brackets and simplified state rates")
-
-    if st.button("🧮 Calculate Tax Optimization", type="primary"):
-        deductions = {
-            "mortgage_interest": mortgage_interest,
-            "charitable": charitable,
-            "state_local_tax": min(state_tax_paid, 10000)  # SALT cap
-        }
-
-        result = AdvancedCalculator.calculate_tax_optimization(
-            annual_income, deductions, retirement_401k, state
-        )
-
-        st.success("✅ Tax Analysis Complete!")
-
-        # Key metrics
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric("Total Tax", f"${result['total_tax']:,.0f}")
-        with col2:
-            st.metric("Effective Rate", f"{result['effective_tax_rate']:.2%}")
-        with col3:
-            st.metric("Federal Tax", f"${result['federal_tax']:,.0f}")
-        with col4:
-            st.metric("State Tax", f"${result['state_tax']:,.0f}")
-
-        # Tax breakdown visualization
-        st.subheader("💵 Tax Breakdown")
-        tax_fig = AdvancedVisualizer.create_tax_breakdown_chart(result)
-        st.plotly_chart(tax_fig, use_container_width=True)
-
-        # Retirement savings benefit
-        st.markdown("---")
-        st.subheader("🎯 Retirement Contribution Benefits")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown(f"""
-            <div class="success-card">
-                <h4>💰 Tax Savings from 401(k)</h4>
-                <h2>${result['retirement_tax_savings']:,.0f}</h2>
-                <p>Your ${retirement_401k:,} contribution saves you this much in taxes!</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-            potential_additional = 23000 - retirement_401k
-            if potential_additional > 0:
-                additional_savings = potential_additional * 0.22  # Marginal rate
-                st.markdown(f"""
-                <div class="warning-card">
-                    <h4>📈 Potential Additional Savings</h4>
-                    <h2>${additional_savings:,.0f}</h2>
-                    <p>If you max out your 401(k) (${potential_additional:,} more)</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div class="success-card">
-                    <h4>✅ Maximizing 401(k)</h4>
-                    <p>You're contributing the maximum amount!</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-        # Recommendations
-        st.subheader("💡 Tax Optimization Recommendations")
-        for i, rec in enumerate(result['recommendations'], 1):
-            st.markdown(f"""
-            <div class="metric-card">
-                <p><strong>{i}.</strong> {rec}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-
-def render_fire_calculator():
-    """Render FIRE (Financial Independence Retire Early) calculator"""
-    st.header("🎯 FIRE Calculator")
-
-    st.markdown("""
-    <div class="premium-card">
-        <h3>🔥 Financial Independence Retire Early</h3>
-        <p>Calculate how much you need to achieve financial independence and potentially retire early.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Current Situation")
-        current_age = st.number_input("Current Age", min_value=18, max_value=80, value=30)
-        current_savings = st.number_input("Current Savings ($)",
-                                         min_value=0, value=50000, step=5000)
-        annual_income = st.number_input("Annual Income ($)",
-                                       min_value=0, value=80000, step=5000)
-        annual_expenses = st.number_input("Annual Expenses ($)",
-                                         min_value=0, value=50000, step=5000)
-
-    with col2:
-        st.subheader("FIRE Parameters")
-        fire_type = st.selectbox("FIRE Type",
-                                ["Regular FIRE", "Lean FIRE (70% expenses)", "Fat FIRE (150% expenses)"])
-        withdrawal_rate = st.slider("Safe Withdrawal Rate (%)",
-                                    min_value=2.5, max_value=5.0, value=4.0, step=0.1) / 100
-        expected_return = st.slider("Expected Investment Return (%)",
-                                   min_value=4.0, max_value=12.0, value=8.0, step=0.5) / 100
-        savings_rate = (annual_income - annual_expenses) / annual_income if annual_income > 0 else 0
-        st.metric("Your Savings Rate", f"{savings_rate:.1%}")
-
-    if st.button("🚀 Calculate FIRE Number", type="primary"):
-        # Calculate FIRE metrics
-        expense_multiplier = 1.0
-        if "Lean" in fire_type:
-            expense_multiplier = 0.7
-        elif "Fat" in fire_type:
-            expense_multiplier = 1.5
-
-        adjusted_expenses = annual_expenses * expense_multiplier
-        fire_result = AdvancedCalculator.calculate_fire_number(adjusted_expenses, withdrawal_rate)
-
-        # Calculate years to FIRE
-        annual_savings = annual_income - annual_expenses
-        fire_number = fire_result['fire_number']
-
-        # Using compound interest formula
-        if annual_savings > 0 and expected_return > 0:
-            # FV = PV * (1 + r)^n + PMT * [((1 + r)^n - 1) / r]
-            # Solving for n (years)
-            years_to_fire = 0
-            portfolio = current_savings
-            while portfolio < fire_number and years_to_fire < 100:
-                portfolio = portfolio * (1 + expected_return) + annual_savings
-                years_to_fire += 1
-
-            fire_age = current_age + years_to_fire
-        else:
-            years_to_fire = None
-            fire_age = None
-
-        # Display results
-        st.success(f"✅ {fire_type} Analysis Complete!")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown(f"""
-            <div class="premium-card">
-                <h4>🎯 Your FIRE Number</h4>
-                <h2>${fire_number:,.0f}</h2>
-                <p>Portfolio value needed for financial independence</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-            if years_to_fire:
-                st.markdown(f"""
-                <div class="success-card">
-                    <h4>⏱️ Years to FIRE</h4>
-                    <h2>{years_to_fire} years</h2>
-                    <p>At current savings rate</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div class="warning-card">
-                    <h4>⚠️ Cannot reach FIRE</h4>
-                    <p>Increase income or reduce expenses</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-        with col3:
-            if fire_age:
-                st.markdown(f"""
-                <div class="success-card">
-                    <h4>🎂 FIRE Age</h4>
-                    <h2>{fire_age}</h2>
-                    <p>Age at financial independence</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-        # Additional metrics
-        st.markdown("---")
-        st.subheader("📊 FIRE Metrics Breakdown")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric("Annual Passive Income",
-                     f"${fire_number * withdrawal_rate:,.0f}",
-                     help="Income from your FIRE portfolio at safe withdrawal rate")
-
-        with col2:
-            st.metric("Monthly Passive Income",
-                     f"${(fire_number * withdrawal_rate) / 12:,.0f}")
-
-        with col3:
-            st.metric("Months of Expenses Covered",
-                     f"{fire_result['years_of_expenses']:.0f} years",
-                     help="How long your portfolio can sustain you")
-
-        # Alternative FIRE levels
-        st.markdown("---")
-        st.subheader("🎯 Alternative FIRE Targets")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h4>💰 Lean FIRE</h4>
-                <h3>${fire_result['lean_fire']:,.0f}</h3>
-                <p>70% of current expenses</p>
-                <p>${fire_result['lean_fire'] * withdrawal_rate / 12:,.0f}/month passive income</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h4>💎 Fat FIRE</h4>
-                <h3>${fire_result['fat_fire']:,.0f}</h3>
-                <p>150% of current expenses</p>
-                <p>${fire_result['fat_fire'] * withdrawal_rate / 12:,.0f}/month passive income</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # Progress visualization
-        if years_to_fire and years_to_fire < 100:
-            st.subheader("📈 Path to FIRE")
-
-            # Generate projection data
-            years_data = list(range(years_to_fire + 1))
-            portfolio_values = []
-            portfolio = current_savings
-
-            for year in years_data:
-                portfolio_values.append(portfolio)
-                if year < years_to_fire:
-                    portfolio = portfolio * (1 + expected_return) + annual_savings
-
-            fig = go.Figure()
-
-            fig.add_trace(go.Scatter(
-                x=years_data,
-                y=portfolio_values,
-                fill='tozeroy',
-                name='Portfolio Growth',
-                line=dict(color='#3b82f6', width=3)
-            ))
-
-            fig.add_hline(
-                y=fire_number,
-                line_dash="dash",
-                line_color="#10b981",
-                annotation_text=f"FIRE Number: ${fire_number:,.0f}",
-                annotation_position="right"
-            )
-
-            fig.update_layout(
-                title='Projected Path to Financial Independence',
-                xaxis_title='Years from Now',
-                yaxis_title='Portfolio Value ($)',
-                template='plotly_dark',
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(30, 41, 59, 0.5)',
-                height=500
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Actionable recommendations
-        st.subheader("💡 Recommendations to Accelerate FIRE")
-
-        recommendations = []
-
-        if savings_rate < 0.20:
-            recommendations.append("📉 Increase your savings rate to at least 20% to significantly accelerate FIRE")
-        elif savings_rate < 0.50:
-            recommendations.append(f"💰 Great savings rate of {savings_rate:.0%}! Consider pushing to 50% for faster FIRE")
-        else:
-            recommendations.append(f"🏆 Excellent {savings_rate:.0%} savings rate! You're on the fast track to FIRE")
-
-        if annual_expenses > annual_income * 0.7:
-            recommendations.append("🏠 Look for ways to reduce housing and transportation costs (typically largest expenses)")
-
-        recommendations.append("📈 Maximize tax-advantaged accounts (401k, IRA, HSA) to boost returns")
-        recommendations.append("💼 Explore side income opportunities to increase savings rate")
-        recommendations.append("🔍 Review and optimize investment fees - even 0.5% matters over decades")
-
-        for rec in recommendations:
-            st.markdown(f"""
-            <div class="metric-card">
-                <p>{rec}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-
-def render_market_data():
-    """Render real-time market data"""
-    st.header("📈 Real-Time Market Data")
-
-    if not MARKET_DATA_AVAILABLE:
-        st.error("📦 Install yfinance package to enable market data: pip install yfinance")
-        return
-
-    st.markdown("""
-    <div class="ai-insight-card">
-        <h4>📊 Live Market Data</h4>
-        <p>Track real-time stock prices and analyze historical performance.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        symbol = st.text_input("Enter Stock Symbol", value="AAPL").upper()
-
-    with col2:
-        period = st.selectbox("Time Period",
-                             ["1mo", "3mo", "6mo", "1y", "2y", "5y"],
-                             index=3)
-
-    if st.button("📊 Fetch Data", type="primary"):
-        with st.spinner(f"Fetching {symbol} data..."):
-            data = MarketDataService.get_market_data(symbol, period)
-
-            if data is not None and not data.empty:
-                current_price = data['Close'].iloc[-1]
-                start_price = data['Close'].iloc[0]
-                change = ((current_price - start_price) / start_price) * 100
-
-                # Display metrics
-                col1, col2, col3, col4 = st.columns(4)
-
-                with col1:
-                    st.metric("Current Price", f"${current_price:.2f}")
-                with col2:
-                    st.metric("Period Change", f"{change:+.2f}%",
-                             delta=f"${current_price - start_price:+.2f}")
-                with col3:
-                    st.metric("Period High", f"${data['High'].max():.2f}")
-                with col4:
-                    st.metric("Period Low", f"${data['Low'].min():.2f}")
-
-                # Price chart
-                st.subheader(f"📈 {symbol} Price History")
-
-                fig = go.Figure()
-
-                fig.add_trace(go.Candlestick(
-                    x=data.index,
-                    open=data['Open'],
-                    high=data['High'],
-                    low=data['Low'],
-                    close=data['Close'],
-                    name=symbol
-                ))
-
-                fig.update_layout(
-                    title=f'{symbol} Stock Price',
-                    yaxis_title='Price ($)',
-                    template='plotly_dark',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    height=500,
-                    xaxis_rangeslider_visible=False
-                )
-
-                st.plotly_chart(fig, use_container_width=True)
-
-                # Volume chart
-                st.subheader("📊 Trading Volume")
-
-                vol_fig = go.Figure()
-                vol_fig.add_trace(go.Bar(
-                    x=data.index,
-                    y=data['Volume'],
-                    name='Volume',
-                    marker_color='#3b82f6'
-                ))
-
-                vol_fig.update_layout(
-                    yaxis_title='Volume',
-                    template='plotly_dark',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    height=300
-                )
-
-                st.plotly_chart(vol_fig, use_container_width=True)
-
-                # Calculate returns
-                returns = MarketDataService.calculate_returns(data)
-
-                if returns:
-                    st.subheader("📊 Performance Metrics")
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        st.metric("Cumulative Return",
-                                 f"{returns['cumulative_return']:.2%}")
-                    with col2:
-                        st.metric("Sharpe Ratio",
-                                 f"{returns['sharpe_ratio']:.2f}",
-                                 help="Risk-adjusted return metric")
-                    with col3:
-                        st.metric("Max Drawdown",
-                                 f"{returns['max_drawdown']:.2%}",
-                                 help="Largest peak-to-trough decline")
-
-            else:
-                st.error(f"❌ Could not fetch data for {symbol}. Please check the symbol and try again.")
-
-
-def render_ai_insights():
-    """Render AI-powered insights"""
-    st.header("🤖 AI-Powered Financial Insights")
-
-    if not AI_AVAILABLE or not os.getenv("GROQ_API_KEY"):
-        st.warning("⚠️ Configure GROQ_API_KEY in .env file to enable AI insights")
-        st.info("Get your free API key at: https://console.groq.com")
-        return
-
-    st.markdown("""
-    <div class="premium-card">
-        <h3>🧠 Advanced AI Analysis</h3>
-        <p>Get personalized financial insights powered by LLaMA 3.3 70B</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab1, tab2, tab3 = st.tabs(["💬 Financial Q&A", "📊 Portfolio Review", "🎯 Goal Analysis"])
-
-    with tab1:
-        st.subheader("💬 Ask Your Financial Questions")
-
-        user_question = st.text_area(
-            "What would you like to know?",
-            placeholder="E.g., Should I pay off my mortgage early or invest more?"
-        )
-
-        if st.button("🤖 Get AI Advice", type="primary"):
-            if user_question:
-                with st.spinner("Analyzing your question..."):
-                    try:
-                        llm = ChatGroq(
-                            model="llama-3.3-70b-versatile",
-                            temperature=0.3,
-                            groq_api_key=os.getenv("GROQ_API_KEY")
-                        )
-
-                        prompt = f"""
-                        As an expert financial advisor, answer this question with practical,
-                        actionable advice. Be specific and explain the reasoning.
-
-                        Question: {user_question}
-
-                        Provide:
-                        1. A clear answer
-                        2. Key factors to consider
-                        3. Specific action steps
-                        4. Potential risks to be aware of
-                        """
-
-                        response = llm.invoke(prompt)
-
-                        st.markdown(f"""
-                        <div class="ai-insight-card">
-                            <h4>🤖 AI Financial Advisor Response</h4>
-                            {response.content}
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-            else:
-                st.warning("Please enter a question")
-
-    with tab2:
-        st.subheader("📊 AI Portfolio Review")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            portfolio_value = st.number_input("Total Portfolio Value ($)",
-                                             min_value=0, value=100000)
-            stock_allocation = st.slider("Stocks (%)", 0, 100, 60)
-            bonds_allocation = st.slider("Bonds (%)", 0, 100, 30)
-            cash_allocation = st.slider("Cash (%)", 0, 100, 10)
-
-        with col2:
-            age = st.number_input("Your Age", min_value=18, max_value=100, value=35)
-            risk_tolerance = st.select_slider(
-                "Risk Tolerance",
-                options=["Very Conservative", "Conservative", "Moderate", "Aggressive", "Very Aggressive"],
-                value="Moderate"
-            )
-            years_to_goal = st.number_input("Years to Goal", min_value=1, max_value=50, value=25)
-
-        if st.button("🎯 Get AI Portfolio Analysis", type="primary"):
-            portfolio_data = {
-                "portfolio_value": portfolio_value,
-                "allocation": {
-                    "stocks": stock_allocation,
-                    "bonds": bonds_allocation,
-                    "cash": cash_allocation
-                },
-                "age": age,
-                "risk_tolerance": risk_tolerance,
-                "years_to_goal": years_to_goal
-            }
-
-            with st.spinner("AI is analyzing your portfolio..."):
-                insights = AIInsightsEngine.get_ai_analysis(
-                    portfolio_data,
-                    "portfolio allocation"
-                )
-
-                if insights['score']:
-                    col1, col2 = st.columns([1, 3])
-
-                    with col1:
-                        st.metric("AI Portfolio Score", f"{insights['score']}/100")
-
-                    with col2:
-                        st.markdown(f"""
-                        <div class="ai-insight-card">
-                            <h4>📊 Analysis</h4>
-                            <p>{insights['analysis']}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    # Recommendations
-                    st.subheader("💡 AI Recommendations")
-                    for i, rec in enumerate(insights['recommendations'], 1):
-                        st.markdown(f"""
-                        <div class="success-card">
-                            <p><strong>{i}.</strong> {rec}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    # Risks
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        st.subheader("⚠️ Risks to Consider")
-                        for risk in insights['risks']:
-                            st.markdown(f"""
-                            <div class="warning-card">
-                                <p>• {risk}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                    with col2:
-                        st.subheader("🌟 Opportunities")
-                        for opp in insights['opportunities']:
-                            st.markdown(f"""
-                            <div class="success-card">
-                                <p>• {opp}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-    with tab3:
-        st.subheader("🎯 Financial Goal Analysis")
-
-        goal_type = st.selectbox(
-            "Goal Type",
-            ["Retirement", "House Purchase", "Education Fund", "Emergency Fund", "Custom Goal"]
-        )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            goal_amount = st.number_input("Goal Amount ($)", min_value=0, value=500000)
-            current_savings = st.number_input("Current Savings ($)", min_value=0, value=50000)
-
-        with col2:
-            years_to_goal = st.number_input("Years to Goal", min_value=1, max_value=50, value=20, key="goal_years")
-            monthly_contribution = st.number_input("Monthly Contribution ($)", min_value=0, value=1000)
-
-        if st.button("🎯 Analyze Goal", type="primary"):
-            goal_data = {
-                "goal_type": goal_type,
-                "goal_amount": goal_amount,
-                "current_savings": current_savings,
-                "years_to_goal": years_to_goal,
-                "monthly_contribution": monthly_contribution,
-                "annual_contribution": monthly_contribution * 12
-            }
-
-            # Calculate required return
-            fv = goal_amount
-            pv = current_savings
-            pmt = monthly_contribution * 12
-            n = years_to_goal
-
-            # Simplified calculation
-            if pmt > 0:
-                # Using approximation
-                required_return = ((fv - pv) / (pmt * n) - 1)
-            else:
-                required_return = (fv / pv) ** (1/n) - 1 if pv > 0 else 0
-
-            goal_data["required_annual_return"] = required_return
-
-            with st.spinner("AI is analyzing your goal..."):
-                insights = AIInsightsEngine.get_ai_analysis(goal_data, f"{goal_type} goal planning")
-
-                # Display results
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    st.metric("Goal Progress",
-                             f"{(current_savings / goal_amount * 100):.1f}%")
-                with col2:
-                    st.metric("Monthly Savings", f"${monthly_contribution:,.0f}")
-                with col3:
-                    st.metric("Required Return", f"{required_return:.1%}/year")
-
-                if insights['score']:
-                    st.markdown(f"""
-                    <div class="ai-insight-card">
-                        <h4>🎯 Goal Feasibility Score: {insights['score']}/100</h4>
-                        <p>{insights['analysis']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                # Recommendations
-                st.subheader("💡 Action Plan")
-                for i, rec in enumerate(insights['recommendations'], 1):
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <p><strong>Step {i}:</strong> {rec}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-
-def render_reports():
-    """Render reports and export functionality"""
-    st.header("📄 Reports & Export")
-
-    st.markdown("""
-    <div class="premium-card">
-        <h3>📊 Generate Comprehensive Financial Reports</h3>
-        <p>Export your data and generate professional financial reports.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab1, tab2, tab3 = st.tabs(["📄 PDF Report", "📊 Excel Export", "💾 Data Backup"])
-
-    with tab1:
-        st.subheader("📄 Generate PDF Report")
-
-        st.markdown("""
-        Create a comprehensive PDF report including:
-        - Portfolio summary and performance
-        - Budget analysis and spending trends
-        - Tax summary and optimization opportunities
-        - AI-powered recommendations
-        - Charts and visualizations
-        """)
-
-        report_name = st.text_input("Report Name", value=f"financial_report_{datetime.now().strftime('%Y%m%d')}")
-
-        include_sections = st.multiselect(
-            "Include Sections",
-            ["Portfolio Analysis", "Budget Summary", "Tax Analysis", "Goals Progress", "AI Recommendations"],
-            default=["Portfolio Analysis", "AI Recommendations"]
-        )
-
-        if st.button("📄 Generate PDF Report", type="primary"):
-            if PDF_AVAILABLE:
-                with st.spinner("Generating PDF report..."):
-                    # Sample data for demo
-                    report_data = {
-                        'portfolio': {
-                            'total_value': 312400,
-                            'ytd_return': 18.2,
-                            'asset_allocation': 'Diversified'
-                        },
-                        'budget': {
-                            'monthly_income': 8333,
-                            'monthly_expenses': 5667,
-                            'savings_rate': 32
-                        },
-                        'recommendations': [
-                            "Increase 401(k) contribution to maximize employer match",
-                            "Consider tax-loss harvesting in taxable accounts",
-                            "Rebalance portfolio to target allocation",
-                            "Review and reduce subscription expenses",
-                            "Build emergency fund to 6 months expenses"
-                        ]
-                    }
-
-                    filename = ReportGenerator.generate_pdf_report(report_data, f"{report_name}.pdf")
-
-                    if filename:
-                        st.success(f"✅ PDF report generated successfully!")
-
-                        # Offer download
-                        with open(filename, "rb") as f:
-                            st.download_button(
-                                label="📥 Download PDF Report",
-                                data=f,
-                                file_name=filename,
-                                mime="application/pdf"
-                            )
-            else:
-                st.error("📦 Install fpdf2 to generate PDF reports: pip install fpdf2")
-
-    with tab2:
-        st.subheader("📊 Export to Excel")
-
-        st.markdown("""
-        Export your financial data to Excel format with multiple sheets:
-        - Transactions history
-        - Budget breakdown
-        - Investment portfolio
-        - Net worth tracking
-        """)
-
-        if st.button("📊 Export to Excel", type="primary"):
-            with st.spinner("Preparing Excel export..."):
-                # Sample data
-                transactions_df = pd.DataFrame({
-                    'Date': pd.date_range(start='2024-01-01', periods=10, freq='D'),
-                    'Description': ['Salary', 'Groceries', 'Gas', 'Restaurant', 'Utilities',
-                                   'Investment', 'Shopping', 'Entertainment', 'Insurance', 'Rent'],
-                    'Category': ['Income', 'Food', 'Transport', 'Food', 'Utilities',
-                                'Investment', 'Shopping', 'Entertainment', 'Insurance', 'Housing'],
-                    'Amount': [5000, -150, -45, -80, -120, -1000, -200, -60, -150, -1500]
-                })
-
-                budget_df = pd.DataFrame({
-                    'Category': ['Housing', 'Food', 'Transport', 'Utilities', 'Entertainment', 'Savings'],
-                    'Budget': [1500, 600, 300, 200, 200, 1200],
-                    'Actual': [1500, 680, 280, 220, 180, 1140],
-                    'Difference': [0, -80, 20, -20, 20, 60]
-                })
-
-                data_dict = {
-                    'Transactions': transactions_df,
-                    'Budget': budget_df
-                }
-
-                filename = f"financial_data_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                excel_file = ReportGenerator.export_to_excel(data_dict, filename)
-
-                if excel_file:
-                    st.success("✅ Excel file generated successfully!")
-
-                    with open(filename, "rb") as f:
-                        st.download_button(
-                            label="📥 Download Excel File",
-                            data=f,
-                            file_name=filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-
-    with tab3:
-        st.subheader("💾 Data Backup & Restore")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("""
-            <div class="metric-card">
-                <h4>💾 Backup Your Data</h4>
-                <p>Create a complete backup of all your financial data in JSON format.</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            if st.button("💾 Create Backup", type="primary"):
-                backup_data = {
-                    'user_id': st.session_state.get('user_id', 'demo_user'),
-                    'timestamp': datetime.now().isoformat(),
-                    'version': '1.0',
-                    'data': {
-                        'portfolio': {'total_value': 312400, 'holdings': []},
-                        'budget': {'monthly_income': 8333, 'monthly_expenses': 5667},
-                        'goals': []
-                    }
-                }
-
-                backup_json = json.dumps(backup_data, indent=2)
-
-                st.download_button(
-                    label="📥 Download Backup",
-                    data=backup_json,
-                    file_name=f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
-                )
-
-        with col2:
-            st.markdown("""
-            <div class="metric-card">
-                <h4>📂 Restore from Backup</h4>
-                <p>Restore your data from a previous backup file.</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            uploaded_backup = st.file_uploader("Choose backup file", type=['json'])
-
-            if uploaded_backup and st.button("📂 Restore Backup"):
+    st.markdown("## 💬 Ask Questions About Your Finances")
+    st.info("Your financial data has been analyzed. Ask me anything about your financial situation!")
+
+    # Initialize chat history
+    if "enhanced_chat_messages" not in st.session_state:
+        st.session_state.enhanced_chat_messages = []
+
+    # Display chat history
+    for message in st.session_state.enhanced_chat_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Chat input
+    if user_question := st.chat_input("Ask me anything about your finances..."):
+        # Add user message
+        st.session_state.enhanced_chat_messages.append({"role": "user", "content": user_question})
+
+        with st.chat_message("user"):
+            st.markdown(user_question)
+
+        # Get AI response
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing..."):
                 try:
-                    backup_data = json.load(uploaded_backup)
-                    st.success("✅ Backup restored successfully!")
-                    st.json(backup_data)
+                    response = asyncio.run(get_enhanced_ai_response(user_question, financial_context))
                 except Exception as e:
-                    st.error(f"❌ Error restoring backup: {str(e)}")
+                    response = f"I apologize, but I encountered an error. Please try again."
 
+            st.markdown(response)
+
+        # Add assistant response
+        st.session_state.enhanced_chat_messages.append({"role": "assistant", "content": response})
+
+# ===================================================================
+# === END OF ENHANCEMENTS ===
+# ===================================================================
+
+def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, Any]:
+    """
+    Centralized AI insights generator using LLaMA 3.3 via Groq.
+    
+    Args:
+        data: Dictionary containing financial data for analysis
+        context_label: Label indicating the type of analysis (e.g., "Budget Analysis")
+    
+    Returns:
+        Dict containing AI score (0-100), reasoning, and recommendations
+    """
+    # Fallback response for when AI is not available
+    fallback_response = {
+        "ai_score": None,
+        "ai_reasoning": "AI analysis not available - using deterministic fallback.",
+        "ai_recommendations": [
+            "Review your financial data and look for improvement opportunities",
+            "Consider consulting with a financial professional for personalized advice",
+            "Use the built-in calculators and metrics for guidance"
+        ]
+    }
+    
+    if not groq_api_key or TEST_MODE:
+        return fallback_response
+    
+    try:
+        # Initialize ChatGroq client
+        llm = ChatGroq(
+            model="llama-3.3-70b-versatile", 
+            temperature=0.3,  # Conservative temperature for consistent results
+            groq_api_key=groq_api_key
+        )
+        
+        # Create context-specific prompts
+        if context_label == "Budget Analysis":
+            prompt = f"""
+            You are an expert financial advisor. Analyze this budget data and provide insights.
+            
+            Budget Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide a Financial Health Score (0-100) where 0 is critical and 100 is excellent
+            2. Give a brief 2-3 sentence reasoning for the score
+            3. Provide 3-5 concise, actionable recommendations the user can implement today
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            
+            Example format:
+            {{"ai_score": 75, "ai_reasoning": "Good savings rate but high housing costs limit flexibility.", "ai_recommendations": ["Reduce housing costs", "Increase emergency fund", "Track discretionary spending"]}}
+            """
+            
+        elif context_label == "Investment Analysis":
+            prompt = f"""
+            You are an expert investment advisor. Analyze this portfolio data and provide insights.
+            
+            Investment Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide an Investment Risk Score (0-100) where 0 is very conservative and 100 is very aggressive
+            2. Give a brief 2-3 sentence explanation of the risk level and portfolio suitability
+            3. Provide 3-5 specific portfolio improvement suggestions (general types like "low-cost index funds", no specific products)
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            """
+            
+        elif context_label == "Debt Analysis":
+            prompt = f"""
+            You are an expert debt counselor. Analyze this debt situation and provide insights.
+            
+            Debt Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide a Debt Health Score (0-100) where 0 is critical debt situation and 100 is debt-free/healthy
+            2. Give a brief 2-3 sentence assessment of the debt situation
+            3. Provide 3-5 prioritized actionable steps to improve the debt situation
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            """
+            
+        elif context_label == "Retirement Analysis":
+            prompt = f"""
+            You are an expert retirement planner. Analyze this retirement planning data and provide insights.
+            
+            Retirement Data (JSON): {json.dumps(data, default=str)}
+            
+            Tasks:
+            1. Provide a Retirement Readiness Index (0-100) where 0 is completely unprepared and 100 is fully prepared
+            2. Give a brief 2-3 sentence assessment of retirement readiness
+            3. Provide 3-5 specific actions to improve retirement preparedness
+            
+            Important: Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            No additional text or explanations outside the JSON.
+            """
+            
+        else:
+            return fallback_response
+        
+        # Call LLM
+        response = llm.invoke(prompt)
+        response_text = response.content.strip()
+        
+        # Parse JSON response with error handling
+        try:
+            # Try to find JSON in the response
+            if response_text.startswith("{") and response_text.endswith("}"):
+                ai_result = json.loads(response_text)
+            else:
+                # Try to extract JSON from text
+                import re
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    ai_result = json.loads(json_match.group())
+                else:
+                    return fallback_response
+            
+            # Validate response structure
+            required_keys = ["ai_score", "ai_reasoning", "ai_recommendations"]
+            if not all(key in ai_result for key in required_keys):
+                return fallback_response
+            
+            # Validate ai_score is a number between 0-100
+            if ai_result["ai_score"] is not None:
+                ai_result["ai_score"] = max(0, min(100, float(ai_result["ai_score"])))
+            
+            # Ensure recommendations is a list
+            if not isinstance(ai_result["ai_recommendations"], list):
+                ai_result["ai_recommendations"] = [str(ai_result["ai_recommendations"])]
+            
+            return ai_result
+            
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            return fallback_response
+    
+    except Exception as e:
+        # Log error in non-test mode
+        if not TEST_MODE:
+            st.warning(f"AI analysis temporarily unavailable: {str(e)}")
+        return fallback_response
+
+def display_ai_suggestions(ai_insights: Dict[str, Any], context_label: str):
+    """
+    Display AI suggestions in a consistent format across all flows.
+    
+    Args:
+        ai_insights: Dictionary containing AI analysis results
+        context_label: Label for the type of analysis
+    """
+    if TEST_MODE:
+        return
+    
+    ai_score = ai_insights.get("ai_score")
+    ai_reasoning = ai_insights.get("ai_reasoning", "")
+    ai_recommendations = ai_insights.get("ai_recommendations", [])
+    
+    # Display AI suggestions card
+    st.markdown("### 🤖 AI Suggestions")
+    
+    # AI Score display
+    if ai_score is not None:
+        score_color = "#ef4444" if ai_score < 30 else "#f59e0b" if ai_score < 60 else "#10b981"
+        st.markdown(f'''
+        <div class="ai-suggestions-card">
+            <h4>AI {context_label.split()[0]} Score: {ai_score}/100</h4>
+            <p><strong>Analysis:</strong> {ai_reasoning}</p>
+            <h4>Personalized Recommendations:</h4>
+            <ul>
+                {"".join(f"<li>{rec}</li>" for rec in ai_recommendations)}
+            </ul>
+        </div>
+        ''', unsafe_allow_html=True)
+    else:
+        st.markdown(f'''
+        <div class="ai-suggestions-card">
+            <h4>AI Analysis</h4>
+            <p><strong>Note:</strong> {ai_reasoning}</p>
+            <h4>General Recommendations:</h4>
+            <ul>
+                {"".join(f"<li>{rec}</li>" for rec in ai_recommendations)}
+            </ul>
+        </div>
+        ''', unsafe_allow_html=True)
+
+if not groq_api_key and not TEST_MODE:
+    st.error("🚨 GROQ_API_KEY is missing. Check your config.json file or environment variables.")
+    st.warning("💡 AI features will use deterministic fallback mode.")
+
+# Initialize EasyOCR with GPU support
+reader = None
+if not TEST_MODE:
+    try:
+        reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available())
+    except Exception as e:
+        st.warning(f"EasyOCR initialization failed: {e}. OCR features will be limited.")
+        reader = None
+
+class FinancialCalculator:
+    """Core financial calculation functions with advanced analytics"""
+    
+    @staticmethod
+    def calculate_budget_summary(income: float, expenses: Dict[str, float]) -> Dict[str, Any]:
+        """
+        Calculate comprehensive budget summary with dynamic scores based on user inputs.
+        
+        Args:
+            income: Monthly income amount
+            expenses: Dictionary of expense categories and amounts
+        
+        Returns:
+            Dict containing budget analysis results
+        """
+        if income <= 0:
+            return {
+                'total_income': 0,
+                'total_expenses': 0,
+                'savings': 0,
+                'savings_rate': 0,
+                'essential_expenses': 0,
+                'discretionary_expenses': 0,
+                'expense_breakdown': {},
+                'financial_health': 'Critical',
+                'health_color': '#f44336',
+                'health_score': 0,
+                'recommendations': ['Please enter valid income and expense data.']
+            }
+        
+        total_expenses = sum(expenses.values())
+        savings = income - total_expenses
+        savings_rate = (savings / income * 100) if income > 0 else 0
+        
+        # Categorize expenses for better analysis
+        essential_categories = ['housing', 'utilities', 'groceries', 'transportation', 'insurance', 'healthcare']
+        essential_expenses = sum(expenses.get(cat, 0) for cat in essential_categories if cat in expenses)
+        discretionary_expenses = total_expenses - essential_expenses
+        
+        # DYNAMIC Financial health scoring (0-100 scale)
+        health_score = 0
+        
+        # Base score from savings rate (0-50 points)
+        if savings_rate >= 20:
+            health_score += 50
+        elif savings_rate >= 10:
+            health_score += 35
+        elif savings_rate >= 5:
+            health_score += 20
+        elif savings_rate >= 0:
+            health_score += 10
+        else:
+            health_score += 0  # negative savings
+        
+        # Housing ratio modifier (0-25 points)
+        housing_ratio = expenses.get('housing', 0) / income * 100 if income > 0 else 0
+        if housing_ratio <= 25:
+            health_score += 25
+        elif housing_ratio <= 30:
+            health_score += 20
+        elif housing_ratio <= 35:
+            health_score += 10
+        else:
+            health_score += 0  # too much on housing
+        
+        # Debt payment ratio modifier (0-15 points)
+        debt_ratio = expenses.get('debt_payments', 0) / income * 100 if income > 0 else 0
+        if debt_ratio <= 10:
+            health_score += 15
+        elif debt_ratio <= 20:
+            health_score += 10
+        elif debt_ratio <= 30:
+            health_score += 5
+        else:
+            health_score += 0  # high debt burden
+        
+        # Emergency fund consideration (0-10 points)
+        if savings > 0:
+            health_score += 10
+        
+        # Cap at 100
+        health_score = min(100, health_score)
+        
+        # Determine health category based on computed score
+        if health_score >= 80:
+            health_status = "Excellent"
+            health_color = "#4caf50"
+        elif health_score >= 65:
+            health_status = "Good"
+            health_color = "#8bc34a"
+        elif health_score >= 45:
+            health_status = "Fair"
+            health_color = "#ff9800"
+        elif health_score >= 25:
+            health_status = "Poor"
+            health_color = "#ff5722"
+        else:
+            health_status = "Critical"
+            health_color = "#f44336"
+        
+        return {
+            'total_income': income,
+            'total_expenses': total_expenses,
+            'savings': savings,
+            'savings_rate': savings_rate,
+            'essential_expenses': essential_expenses,
+            'discretionary_expenses': discretionary_expenses,
+            'expense_breakdown': expenses,
+            'financial_health': health_status,
+            'health_color': health_color,
+            'health_score': health_score,
+            'recommendations': FinancialCalculator._get_budget_recommendations(savings_rate, expenses, income)
+        }
+    
+    @staticmethod
+    def _get_budget_recommendations(savings_rate: float, expenses: Dict[str, float], income: float) -> List[str]:
+        """
+        Generate personalized budget recommendations.
+        
+        Args:
+            savings_rate: Current savings rate as percentage
+            expenses: Dictionary of expenses
+            income: Monthly income
+        
+        Returns:
+            List of recommendation strings
+        """
+        recommendations = []
+        
+        if savings_rate < 10:
+            recommendations.append("🎯 Aim to save at least 10% of your income")
+            
+        # Check for high expense categories
+        housing_ratio = expenses.get('housing', 0) / income * 100 if income > 0 else 0
+        if housing_ratio > 30:
+            recommendations.append("🏠 Consider reducing housing costs - currently {}% of income".format(round(housing_ratio, 1)))
+            
+        if expenses.get('dining_out', 0) > expenses.get('groceries', 0):
+            recommendations.append("🍽️ Consider cooking more at home to reduce dining expenses")
+            
+        if savings_rate >= 20:
+            recommendations.append("🌟 Excellent savings rate! Consider investing surplus funds")
+        
+        if expenses.get('debt_payments', 0) / income > 0.2:
+            recommendations.append("💳 Focus on debt repayment - debt payments are high relative to income")
+            
+        return recommendations
+    
+    @staticmethod
+    def calculate_investment_allocation(risk_profile: str, time_horizon: int, capital: float, age: int = 35) -> Dict[str, Any]:
+        """
+        Calculate sophisticated investment allocation with dynamic allocations based on inputs.
+        
+        Args:
+            risk_profile: Risk tolerance level (conservative, moderate, aggressive)
+            time_horizon: Investment time horizon in years
+            capital: Initial investment amount
+            age: Investor's age
+        
+        Returns:
+            Dict containing allocation recommendations and projections
+        """
+        # Base allocations by risk profile
+        base_allocations = {
+            'conservative': {'stocks': 25, 'bonds': 65, 'cash': 10},
+            'moderate': {'stocks': 60, 'bonds': 30, 'cash': 10},
+            'aggressive': {'stocks': 85, 'bonds': 10, 'cash': 5}
+        }
+        
+        allocation = base_allocations.get(risk_profile.lower(), base_allocations['moderate']).copy()
+        
+        # DYNAMIC age-based adjustment (100 - age rule with modifications)
+        age_adjusted_stock = max(20, min(90, 110 - age))
+        
+        # DYNAMIC time horizon adjustments
+        if time_horizon < 3:
+            allocation['stocks'] = max(10, allocation['stocks'] - 30)
+            allocation['cash'] += 20
+            allocation['bonds'] += 10
+        elif time_horizon < 7:
+            allocation['stocks'] = max(20, allocation['stocks'] - 15)
+            allocation['bonds'] += 10
+            allocation['cash'] += 5
+        elif time_horizon > 20:
+            allocation['stocks'] = min(95, allocation['stocks'] + 10)
+            allocation['bonds'] = max(5, allocation['bonds'] - 8)
+            allocation['cash'] = max(0, allocation['cash'] - 2)
+        
+        # Blend with age-based allocation
+        allocation['stocks'] = int((allocation['stocks'] + age_adjusted_stock) / 2)
+        allocation['bonds'] = max(5, 95 - allocation['stocks'] - allocation['cash'])
+        
+        # Calculate dollar amounts
+        dollar_allocation = {
+            asset: (percentage / 100) * capital 
+            for asset, percentage in allocation.items()
+        }
+        
+        # DYNAMIC expected returns based on asset allocation (documented assumptions)
+        # Assumptions: Stocks 10% annual, Bonds 4% annual, Cash 2% annual
+        expected_returns = {
+            'stocks': 0.10,  # Historical stock market average
+            'bonds': 0.04,   # Current bond market expectations
+            'cash': 0.02     # High-yield savings/money market
+        }
+        
+        portfolio_return = sum(
+            (allocation[asset] / 100) * expected_returns[asset] 
+            for asset in allocation
+        )
+        
+        # Monte Carlo simulation (simplified)
+        projections = {}
+        for years in [5, 10, 20, 30]:
+            if years <= time_horizon:
+                # Conservative, expected, and optimistic scenarios
+                conservative = capital * ((1 + portfolio_return * 0.7) ** years)
+                expected = capital * ((1 + portfolio_return) ** years)
+                optimistic = capital * ((1 + portfolio_return * 1.3) ** years)
+                
+                projections[f'{years}_years'] = {
+                    'conservative': conservative,
+                    'expected': expected,
+                    'optimistic': optimistic
+                }
+        
+        return {
+            'allocation_percentages': allocation,
+            'allocation_dollars': dollar_allocation,
+            'expected_annual_return': portfolio_return,
+            'projections': projections,
+            'risk_level': risk_profile,
+            'volatility_estimate': FinancialCalculator._calculate_portfolio_volatility(allocation)
+        }
+    
+    @staticmethod
+    def _calculate_portfolio_volatility(allocation: Dict[str, int]) -> float:
+        """
+        Calculate estimated portfolio volatility.
+        
+        Args:
+            allocation: Dictionary of asset allocation percentages
+        
+        Returns:
+            Estimated portfolio volatility as a decimal
+        """
+        volatilities = {'stocks': 0.16, 'bonds': 0.05, 'cash': 0.01}
+        return sum((allocation[asset] / 100) * volatilities[asset] for asset in allocation)
+    
+    @staticmethod
+    def calculate_debt_payoff(debts: List[Dict], extra_payment: float = 0, strategy: str = 'avalanche') -> Dict[str, Any]:
+        """
+        Calculate comprehensive debt payoff strategy with fixed avalanche/snowball logic.
+        
+        Args:
+            debts: List of debt dictionaries with balance, interest_rate, minimum_payment
+            extra_payment: Additional monthly payment amount
+            strategy: Payoff strategy ('avalanche' or 'snowball')
+        
+        Returns:
+            Dict containing debt payoff analysis and scenarios
+        """
+        if not debts:
+            return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0, 'scenarios': {}, 'strategy': strategy}
+        
+        # Validate and clean debt data
+        valid_debts = []
+        for debt in debts:
+            try:
+                balance = float(debt.get('balance', 0))
+                interest_rate = float(debt.get('interest_rate', 0))
+                minimum_payment = float(debt.get('minimum_payment', 0))
+                
+                # Skip debts with invalid data
+                if balance <= 0:
+                    continue
+                    
+                # Auto-adjust minimum payment if it doesn't cover monthly interest
+                monthly_interest = balance * (interest_rate / 100 / 12) if interest_rate > 0 else 0
+                if minimum_payment <= monthly_interest and interest_rate > 0:
+                    # Adjust minimum payment to be able to pay off the debt
+                    minimum_payment = monthly_interest * 1.2 + 25  # 20% buffer plus $25 principal
+                
+                if minimum_payment <= 0:
+                    minimum_payment = max(25, balance * 0.02)  # 2% of balance or $25 minimum
+                
+                valid_debts.append({
+                    'name': debt.get('name', 'Unknown Debt'),
+                    'balance': balance,
+                    'interest_rate': interest_rate,
+                    'minimum_payment': minimum_payment
+                })
+            except (ValueError, TypeError):
+                continue
+        
+        if not valid_debts:
+            return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0, 'scenarios': {}, 'strategy': strategy}
+        
+        total_debt = sum(debt['balance'] for debt in valid_debts)
+        total_minimum = sum(debt['minimum_payment'] for debt in valid_debts)
+        
+        # Calculate payoff scenarios
+        scenarios = {}
+        for scenario_name, extra in [('minimum_only', 0), ('with_extra', extra_payment)]:
+            payoff_plan = []
+            remaining_debts = [debt.copy() for debt in valid_debts]
+            
+            # FIXED: Sort debts based on strategy
+            if strategy == 'avalanche':
+                remaining_debts.sort(key=lambda x: x['interest_rate'], reverse=True)
+            else:  # snowball
+                remaining_debts.sort(key=lambda x: x['balance'])
+            
+            total_interest = 0
+            total_months = 0
+            available_extra = extra
+            
+            # Process each debt in priority order
+            for i, debt in enumerate(remaining_debts):
+                # FIXED: Apply extra payment to current priority debt
+                monthly_payment = debt['minimum_payment']
+                if scenario_name == 'with_extra' and i == 0 and available_extra > 0:
+                    monthly_payment += available_extra
+                
+                balance = debt['balance']
+                rate = debt['interest_rate'] / 100 / 12 if debt['interest_rate'] > 0 else 0
+                
+                # Calculate months to payoff
+                if rate <= 0:
+                    months = int(np.ceil(balance / monthly_payment)) if monthly_payment > 0 else 999
+                elif monthly_payment <= balance * rate:
+                    months = 999   # Payment doesn't cover interest
+                else:
+                    months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
+                    months = max(1, int(np.ceil(months)))
+                
+                # Calculate interest paid
+                if rate > 0:
+                    total_payment = monthly_payment * months
+                    interest_paid = max(0, total_payment - balance)
+                else:
+                    interest_paid = 0
+                
+                total_interest += interest_paid
+                total_months = max(total_months, months)
+                
+                payoff_plan.append({
+                    'debt_name': debt['name'],
+                    'balance': balance,
+                    'interest_rate': debt['interest_rate'],
+                    'monthly_payment': monthly_payment,
+                    'months_to_payoff': months,
+                    'interest_paid': interest_paid,
+                    'priority': i + 1
+                })
+                
+                # FIXED: Roll over payments when debt is paid off
+                if i == 0 and scenario_name == 'with_extra':
+                    # This debt gets extra payment; when paid off, extra rolls to next debt
+                    available_extra = monthly_payment - debt['minimum_payment']
+            
+            scenarios[scenario_name] = {
+                'payoff_plan': payoff_plan,
+                'total_interest': total_interest,
+                'total_months': total_months,
+                'total_payments': total_minimum + (extra if scenario_name == 'with_extra' else 0)
+            }
+        
+        # Calculate savings from extra payments
+        interest_savings = max(0, scenarios['minimum_only']['total_interest'] - scenarios['with_extra']['total_interest'])
+        time_savings = max(0, scenarios['minimum_only']['total_months'] - scenarios['with_extra']['total_months'])
+        
+        return {
+            'total_debt': total_debt,
+            'total_minimum_payment': total_minimum,
+            'scenarios': scenarios,
+            'strategy': strategy,
+            'interest_savings': interest_savings,
+            'time_savings_months': time_savings,
+            'recommended_extra_payment': max(50, total_debt * 0.02)  # 2% of total debt or $50
+        }
+    
+    @staticmethod
+    def calculate_retirement_needs(current_age: int, retirement_age: int, current_income: float, 
+                                 current_savings: float, monthly_contribution: float) -> Dict[str, Any]:
+        """
+        Calculate comprehensive retirement planning with improved future value calculations.
+        
+        Args:
+            current_age: Current age of the person
+            retirement_age: Desired retirement age
+            current_income: Current annual income
+            current_savings: Current retirement savings amount
+            monthly_contribution: Monthly contribution to retirement
+        
+        Returns:
+            Dict containing retirement planning analysis
+        """
+        if current_income <= 0:
+            return {
+                'current_age': current_age,
+                'retirement_age': retirement_age,
+                'years_to_retirement': max(1, retirement_age - current_age),
+                'current_savings': current_savings,
+                'monthly_contribution': monthly_contribution,
+                'retirement_corpus_needed': 0,
+                'projected_savings': 0,
+                'retirement_gap': 0,
+                'required_monthly_contribution': 0,
+                'scenarios': {},
+                'recommendations': ['Please enter valid income data.']
+            }
+        
+        years_to_retirement = max(1, retirement_age - current_age)
+        annual_contribution = monthly_contribution * 12
+        
+        # Assumptions
+        inflation_rate = 0.03
+        investment_return = 0.07
+        replacement_ratio = 0.80  # 80% of current income needed
+        life_expectancy = 85
+        retirement_years = max(1, life_expectancy - retirement_age)
+        
+        # Calculate future income needed (adjusted for inflation)
+        future_income_needed = current_income * ((1 + inflation_rate) ** years_to_retirement)
+        annual_retirement_need = future_income_needed * replacement_ratio
+        
+        # Calculate total retirement corpus needed
+        # Using present value of annuity formula for retirement years
+        real_return = investment_return - inflation_rate
+        if real_return > 0:
+            retirement_corpus_needed = annual_retirement_need * (
+                (1 - (1 + real_return) ** -retirement_years) / real_return
+            )
+        else:
+            retirement_corpus_needed = annual_retirement_need * retirement_years
+        
+        # Future value of current savings
+        future_current_savings = current_savings * ((1 + investment_return) ** years_to_retirement)
+        
+        # FIXED: Future value of contributions using proper future value of annuity formula
+        if investment_return > 0 and annual_contribution > 0:
+            # Standard future value of ordinary annuity formula: PMT * [((1 + r)^n - 1) / r]
+            future_contributions = annual_contribution * (
+                ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+            )
+        else:
+            future_contributions = annual_contribution * years_to_retirement
+        
+        total_projected_savings = future_current_savings + future_contributions
+        
+        # Gap analysis
+        retirement_gap = max(0, retirement_corpus_needed - total_projected_savings)
+        
+        # FIXED: Calculate required monthly contribution to meet goal
+        if retirement_gap > 0 and years_to_retirement > 0:
+            if investment_return > 0:
+                required_annual_contribution = retirement_gap / (
+                    ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+                )
+            else:
+                required_annual_contribution = retirement_gap / years_to_retirement
+            
+            required_monthly_contribution = required_annual_contribution / 12
+        else:
+            required_monthly_contribution = 0
+        
+        # Scenarios
+        scenarios = {}
+        for contribution_multiplier, scenario_name in [(0.5, 'conservative'), (1.0, 'current'), (1.5, 'aggressive')]:
+            scenario_monthly = monthly_contribution * contribution_multiplier
+            scenario_annual = scenario_monthly * 12
+            
+            # FIXED: Use proper future value of annuity formula for scenarios
+            if investment_return > 0 and scenario_annual > 0:
+                scenario_future_contributions = scenario_annual * (
+                    ((1 + investment_return) ** years_to_retirement - 1) / investment_return
+                )
+            else:
+                scenario_future_contributions = scenario_annual * years_to_retirement
+            
+            scenario_total = future_current_savings + scenario_future_contributions
+            
+            # Calculate monthly retirement income
+            if real_return > 0:
+                monthly_retirement_income = (scenario_total * real_return) / 12
+            else:
+                monthly_retirement_income = scenario_total / (retirement_years * 12)
+            
+            replacement_ratio_achieved = (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0
+            
+            scenarios[scenario_name] = {
+                'monthly_contribution': scenario_monthly,
+                'projected_total': scenario_total,
+                'monthly_retirement_income': monthly_retirement_income,
+                'replacement_ratio_achieved': replacement_ratio_achieved
+            }
+        
+        return {
+            'current_age': current_age,
+            'retirement_age': retirement_age,
+            'years_to_retirement': years_to_retirement,
+            'current_savings': current_savings,
+            'monthly_contribution': monthly_contribution,
+            'retirement_corpus_needed': retirement_corpus_needed,
+            'projected_savings': total_projected_savings,
+            'retirement_gap': retirement_gap,
+            'required_monthly_contribution': required_monthly_contribution,
+            'scenarios': scenarios,
+            'recommendations': FinancialCalculator._get_retirement_recommendations(
+                retirement_gap, years_to_retirement, monthly_contribution, required_monthly_contribution
+            )
+        }
+    
+    @staticmethod
+    def _get_retirement_recommendations(gap: float, years_left: int, current_contrib: float, required_contrib: float) -> List[str]:
+        """
+        Generate retirement planning recommendations.
+        
+        Args:
+            gap: Retirement funding gap
+            years_left: Years until retirement
+            current_contrib: Current monthly contribution
+            required_contrib: Required monthly contribution to meet goal
+        
+        Returns:
+            List of recommendation strings
+        """
+        recommendations = []
+        
+        # FIXED: Proper recommendation logic
+        if gap > 0:
+            increase_needed = max(0, required_contrib - current_contrib)
+            if increase_needed > 0:
+                recommendations.append(f"💰 Increase monthly contributions by ${increase_needed:.0f}")
+            else:
+                recommendations.append("🎉 You are already on track, no increase needed")
+        else:
+            recommendations.append("🎉 You are already on track, no increase needed")
+            
+        if years_left > 30:
+            recommendations.append("📈 Consider more aggressive investments for long-term growth")
+        elif years_left < 10:
+            recommendations.append("🛡️ Consider shifting to more conservative investments")
+            
+        if current_contrib < 500:
+            recommendations.append("🎯 Aim to contribute at least $500/month for retirement")
+            
+        recommendations.append("🏢 Maximize employer 401(k) matching if available")
+        recommendations.append("💡 Consider Roth IRA for tax-free retirement income")
+        
+        return recommendations
+
+class FinancialVisualizer:
+    """Advanced visualization functions for financial data"""
+    
+    @staticmethod
+    def plot_expense_breakdown(expenses: Dict[str, float], title: str = "Expense Breakdown") -> go.Figure:
+        """
+        Create an interactive pie chart for expense breakdown with empty data handling.
+        
+        Args:
+            expenses: Dictionary of expense categories and amounts
+            title: Chart title
+        
+        Returns:
+            Plotly figure object
+        """
+        # Filter out zero expenses
+        filtered_expenses = {k: v for k, v in expenses.items() if v > 0}
+        
+        if not filtered_expenses:
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No expense data available<br>Please enter your expenses to see the breakdown",
+                x=0.5, y=0.5, showarrow=False,
+                font=dict(size=16, color='white')
+            )
+            fig.update_layout(
+                paper_bgcolor='#1f2937', plot_bgcolor='#1f2937', 
+                font_color='white', height=400
+            )
+            return fig
+        
+        fig = px.pie(
+            values=list(filtered_expenses.values()),
+            names=list(filtered_expenses.keys()),
+            title=title,
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        
+        fig.update_traces(
+            textposition='inside',
+            textinfo='percent+label',
+            hovertemplate='<b>%{label}</b><br>Amount: $%{value:,.0f}<br>Percentage: %{percent}<extra></extra>'
+        )
+        
+        fig.update_layout(
+            showlegend=True,
+            height=500,
+            font=dict(size=12, color='white'),
+            paper_bgcolor='#1f2937',
+            plot_bgcolor='#1f2937'
+        )
+        
+        return fig
+    
+    @staticmethod
+    def plot_budget_summary(budget_data: Dict[str, Any]) -> go.Figure:
+        """
+        Create a comprehensive budget visualization with dynamic values.
+        
+        Args:
+            budget_data: Dictionary containing budget analysis results
+        
+        Returns:
+            Plotly figure object
+        """
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'Financial Health Score'),
+            specs=[[{"type": "bar"}, {"type": "indicator"}],
+                   [{"type": "pie"}, {"type": "indicator"}]]
+        )
+        
+        # Income vs Expenses bar chart - DYNAMIC values
+        fig.add_trace(
+            go.Bar(
+                x=['Income', 'Expenses', 'Savings'],
+                y=[budget_data['total_income'], budget_data['total_expenses'], budget_data['savings']],
+                marker_color=['#2ecc71', '#e74c3c', '#3498db'],
+                name='Amount'
+            ),
+            row=1, col=1
+        )
+        
+        # DYNAMIC Savings rate gauge
+        fig.add_trace(
+            go.Indicator(
+                mode="gauge+number+delta",
+                value=budget_data['savings_rate'],
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': "Savings Rate (%)"},
+                gauge={
+                    'axis': {'range': [None, 30]},
+                    'bar': {'color': budget_data['health_color']},
+                    'steps': [
+                        {'range': [0, 10], 'color': "lightgray"},
+                        {'range': [10, 20], 'color': "gray"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': 20
+                    }
+                }
+            ),
+            row=1, col=2
+        )
+        
+        # Expense breakdown pie - handles empty data
+        filtered_expenses = {k: v for k, v in budget_data['expense_breakdown'].items() if v > 0}
+        if filtered_expenses:
+            fig.add_trace(
+                go.Pie(
+                    labels=list(filtered_expenses.keys()),
+                    values=list(filtered_expenses.values()),
+                    name="Expenses"
+                ),
+                row=2, col=1
+            )
+        
+        # DYNAMIC Financial health indicator - uses computed health score
+        fig.add_trace(
+            go.Indicator(
+                mode="gauge+number",
+                value=budget_data['health_score'],  # DYNAMIC score from calculation
+                title={'text': f"Health Score: {budget_data['financial_health']}"},
+                gauge={
+                    'axis': {'range': [None, 100]},
+                    'bar': {'color': budget_data['health_color']},
+                    'steps': [
+                        {'range': [0, 25], 'color': "#ffebee"},
+                        {'range': [25, 45], 'color': "#fff3e0"},
+                        {'range': [45, 65], 'color': "#f3e5f5"},
+                        {'range': [65, 80], 'color': "#e8f5e8"},
+                        {'range': [80, 100], 'color': "#c8e6c9"}
+                    ]
+                }
+            ),
+            row=2, col=2
+        )
+        
+        fig.update_layout(
+            height=800, 
+            showlegend=False, 
+            title_text="Budget Analysis Dashboard",
+            paper_bgcolor='#1f2937',
+            plot_bgcolor='#1f2937',
+            font_color='white'
+        )
+        return fig
+    
+    @staticmethod
+    def plot_investment_allocation(allocation_data: Dict[str, Any]) -> go.Figure:
+        """
+        Create investment allocation visualization with dynamic values.
+        
+        Args:
+            allocation_data: Dictionary containing investment allocation data
+        
+        Returns:
+            Plotly figure object
+        """
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'Dollar Allocation'),
+            specs=[[{"type": "pie"}, {"type": "scatter"}],
+                   [{"type": "scatter"}, {"type": "bar"}]]
+        )
+        
+        # DYNAMIC Asset allocation pie chart
+        allocation = allocation_data['allocation_percentages']
+        fig.add_trace(
+            go.Pie(
+                labels=list(allocation.keys()),
+                values=list(allocation.values()),
+                name="Allocation",
+                marker_colors=['#1f77b4', '#ff7f0e', '#2ca02c']
+            ),
+            row=1, col=1
+        )
+        
+        # DYNAMIC Portfolio projections
+        projections = allocation_data.get('projections', {})
+        years = []
+        conservative_vals = []
+        expected_vals = []
+        optimistic_vals = []
+        
+        for year_key, scenarios in projections.items():
+            year = int(year_key.split('_')[0])
+            years.append(year)
+            conservative_vals.append(scenarios['conservative'])
+            expected_vals.append(scenarios['expected'])
+            optimistic_vals.append(scenarios['optimistic'])
+        
+        if years:
+            fig.add_trace(go.Scatter(x=years, y=conservative_vals, name='Conservative', line=dict(color='red')), row=1, col=2)
+            fig.add_trace(go.Scatter(x=years, y=expected_vals, name='Expected', line=dict(color='blue')), row=1, col=2)
+            fig.add_trace(go.Scatter(x=years, y=optimistic_vals, name='Optimistic', line=dict(color='green')), row=1, col=2)
+        
+        # Risk vs Return scatter
+        risk_return_data = {
+            'Conservative': (0.08, 0.06),
+            'Moderate': (0.12, 0.08),
+            'Aggressive': (0.18, 0.10)
+        }
+        
+        for profile, (risk, return_val) in risk_return_data.items():
+            color = 'red' if profile == allocation_data['risk_level'].title() else 'lightblue'
+            fig.add_trace(
+                go.Scatter(
+                    x=[risk], y=[return_val], 
+                    mode='markers+text',
+                    text=[profile],
+                    textposition="top center",
+                    marker=dict(size=15, color=color),
+                    name=profile
+                ),
+                row=2, col=1
+            )
+        
+        # DYNAMIC Dollar allocation bar chart
+        dollar_allocation = allocation_data['allocation_dollars']
+        fig.add_trace(
+            go.Bar(
+                x=list(dollar_allocation.keys()),
+                y=list(dollar_allocation.values()),
+                marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'],
+                name='Dollar Amount'
+            ),
+            row=2, col=2
+        )
+        
+        fig.update_layout(
+            height=800, 
+            showlegend=True, 
+            title_text="Investment Portfolio Analysis",
+            paper_bgcolor='#1f2937',
+            plot_bgcolor='#1f2937',
+            font_color='white'
+        )
+        return fig
+    
+    @staticmethod
+    def plot_debt_payoff(debt_data: Dict[str, Any]) -> go.Figure:
+        """
+        Create debt payoff visualization with dynamic values.
+        
+        Args:
+            debt_data: Dictionary containing debt analysis data
+        
+        Returns:
+            Plotly figure object
+        """
+        scenarios = debt_data.get('scenarios', {})
+        
+        if not scenarios:
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No debt data available<br>Please add your debts to see the analysis", 
+                x=0.5, y=0.5, showarrow=False,
+                font=dict(size=16, color='white')
+            )
+            fig.update_layout(
+                paper_bgcolor='#1f2937', plot_bgcolor='#1f2937', 
+                font_color='white', height=400
+            )
+            return fig
+        
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=('Debt Balances', 'Payoff Timeline', 'Interest Rates', 'Monthly Payments'),
+            specs=[[{"type": "bar"}, {"type": "bar"}],
+                   [{"type": "bar"}, {"type": "bar"}]]
+        )
+        
+        # Get debt data from scenario
+        debts = scenarios.get('minimum_only', {}).get('payoff_plan', [])
+        
+        if debts:
+            debt_names = [debt['debt_name'] for debt in debts]
+            balances = [debt['balance'] for debt in debts]
+            months = [debt['months_to_payoff'] for debt in debts]
+            interest_rates = [debt['interest_rate'] for debt in debts]
+            payments = [debt['monthly_payment'] for debt in debts]
+            
+            # DYNAMIC Debt balances
+            fig.add_trace(
+                go.Bar(x=debt_names, y=balances, name='Balance', marker_color='red'),
+                row=1, col=1
+            )
+            
+            # DYNAMIC Payoff timeline
+            fig.add_trace(
+                go.Bar(x=debt_names, y=months, name='Months to Payoff', marker_color='blue'),
+                row=1, col=2
+            )
+            
+            # DYNAMIC Interest rates
+            fig.add_trace(
+                go.Bar(x=debt_names, y=interest_rates, name='Interest Rate (%)', marker_color='orange'),
+                row=2, col=1
+            )
+            
+            # DYNAMIC Monthly payments
+            fig.add_trace(
+                go.Bar(x=debt_names, y=payments, name='Monthly Payment', marker_color='green'),
+                row=2, col=2
+            )
+        
+        fig.update_layout(
+            height=800, 
+            showlegend=False, 
+            title_text="Debt Payoff Analysis",
+            paper_bgcolor='#1f2937',
+            plot_bgcolor='#1f2937',
+            font_color='white'
+        )
+        return fig
+    
+    @staticmethod
+    def plot_retirement_projections(retirement_data: Dict[str, Any]) -> go.Figure:
+        """
+        Create retirement planning visualization with dynamic values.
+        
+        Args:
+            retirement_data: Dictionary containing retirement analysis data
+        
+        Returns:
+            Plotly figure object
+        """
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'Income Replacement'),
+            specs=[[{"type": "bar"}, {"type": "scatter"}],
+                   [{"type": "scatter"}, {"type": "indicator"}]]
+        )
+        
+        scenarios = retirement_data.get('scenarios', {})
+        
+        # DYNAMIC Retirement scenarios comparison
+        scenario_names = list(scenarios.keys())
+        projected_totals = [scenarios[name]['projected_total'] for name in scenario_names]
+        monthly_contributions = [scenarios[name]['monthly_contribution'] for name in scenario_names]
+        
+        fig.add_trace(
+            go.Bar(
+                x=scenario_names,
+                y=projected_totals,
+                name='Projected Total',
+                marker_color=['#ff7f0e', '#1f77b4', '#2ca02c']
+            ),
+            row=1, col=1
+        )
+        
+        # DYNAMIC Contribution impact
+        fig.add_trace(
+            go.Scatter(
+                x=monthly_contributions,
+                y=projected_totals,
+                mode='markers+lines',
+                name='Contribution vs Total',
+                marker=dict(size=10)
+            ),
+            row=1, col=2
+        )
+        
+        # DYNAMIC Savings growth over time
+        years_to_retirement = retirement_data['years_to_retirement']
+        current_savings = retirement_data['current_savings']
+        monthly_contribution = retirement_data['monthly_contribution']
+        
+        years = list(range(0, min(years_to_retirement + 1, 31), 5))
+        growth_values = []
+        
+        for year in years:
+            future_current = current_savings * ((1.07) ** year)
+            future_contributions = monthly_contribution * 12 * year * ((1.07) ** (year/2)) if year > 0 else 0
+            growth_values.append(future_current + future_contributions)
+        
+        fig.add_trace(
+            go.Scatter(
+                x=years,
+                y=growth_values,
+                mode='lines+markers',
+                name='Projected Growth',
+                line=dict(color='green', width=3)
+            ),
+            row=2, col=1
+        )
+        
+        # DYNAMIC Income replacement gauge
+        current_replacement = scenarios.get('current', {}).get('replacement_ratio_achieved', 0) * 100
+        fig.add_trace(
+            go.Indicator(
+                mode="gauge+number",
+                value=current_replacement,
+                title={'text': "Income Replacement (%)"},
+                gauge={
+                    'axis': {'range': [None, 100]},
+                    'bar': {'color': "darkblue"},
+                    'steps': [
+                        {'range': [0, 50], 'color': "lightgray"},
+                        {'range': [50, 80], 'color': "gray"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': 80
+                    }
+                }
+            ),
+            row=2, col=2
+        )
+        
+        fig.update_layout(
+            height=800, 
+            showlegend=True, 
+            title_text="Retirement Planning Analysis",
+            paper_bgcolor='#1f2937',
+            plot_bgcolor='#1f2937',
+            font_color='white'
+        )
+        return fig
+
+class FinancialFlows:
+    """Structured financial advisory flows with step-by-step guidance"""
+    
+    @staticmethod
+    def budgeting_flow():
+        """
+        Interactive budgeting flow with guided questions.
+        
+        Returns:
+            Budget analysis results or None
+        """
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h2>💰 Smart Budgeting Assistant</h2><p>Let\'s create a comprehensive budget plan tailored to your financial situation.</p></div>', unsafe_allow_html=True)
+        
+        # Initialize session state for form data
+        if 'budget_form_submitted' not in st.session_state:
+            st.session_state.budget_form_submitted = False
+        if 'budget_form_data' not in st.session_state:
+            st.session_state.budget_form_data = {}
+        
+        # Create form
+        if not TEST_MODE:
+            with st.form("budget_form"):
+                # Step 1: Income
+                st.subheader("Step 1: Monthly Income")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    primary_income = st.number_input("Primary Income (after taxes)", min_value=0.0, value=5000.0, step=100.0)
+                    secondary_income = st.number_input("Secondary Income", min_value=0.0, value=0.0, step=100.0)
+                
+                with col2:
+                    other_income = st.number_input("Other Income (investments, etc.)", min_value=0.0, value=0.0, step=100.0)
+                    total_income = primary_income + secondary_income + other_income
+                    st.metric("Total Monthly Income", f"${total_income:,.2f}")
+                
+                # Step 2: Expenses
+                st.subheader("Step 2: Monthly Expenses")
+                
+                expense_categories = {
+                    'housing': 'Housing (rent/mortgage, property tax)',
+                    'utilities': 'Utilities (electricity, water, internet)',
+                    'groceries': 'Groceries',
+                    'transportation': 'Transportation (car payment, gas, public transit)',
+                    'insurance': 'Insurance (health, auto, life)',
+                    'healthcare': 'Healthcare (medical, dental)',
+                    'dining_out': 'Dining Out & Entertainment',
+                    'shopping': 'Shopping & Personal Care',
+                    'subscriptions': 'Subscriptions & Memberships',
+                    'savings': 'Savings & Investments',
+                    'debt_payments': 'Debt Payments',
+                    'other': 'Other Expenses'
+                }
+                
+                expenses = {}
+                col1, col2 = st.columns(2)
+                
+                for i, (key, label) in enumerate(expense_categories.items()):
+                    with col1 if i % 2 == 0 else col2:
+                        expenses[key] = st.number_input(label, min_value=0.0, value=0.0, step=50.0, key=f"expense_{key}")
+                
+                # Submit button
+                submitted = st.form_submit_button("Analyze My Budget", type="primary")
+        else:
+            # Test mode - use sample data with dynamic total income calculation
+            submitted = True
+            expenses = {
+                'housing': 1500, 'utilities': 200, 'groceries': 400,
+                'transportation': 300, 'insurance': 200, 'healthcare': 150,
+                'dining_out': 300, 'shopping': 200, 'subscriptions': 50,
+                'savings': 500, 'debt_payments': 300, 'other': 100
+            }
+            # FIXED: Calculate total income dynamically from expenses for test mode
+            total_expenses = sum(expenses.values())
+            total_income = total_expenses + 1000  # Add some savings for realistic test scenario
+        
+        # Process form submission
+        if submitted:
+            st.session_state.budget_form_submitted = True
+            st.session_state.budget_form_data = {
+                'total_income': total_income,
+                'expenses': expenses
+            }
+        
+        # Display results if form has been submitted
+        if st.session_state.budget_form_submitted and st.session_state.budget_form_data:
+            form_data = st.session_state.budget_form_data
+            budget_summary = FinancialCalculator.calculate_budget_summary(form_data['total_income'], form_data['expenses'])
+            
+            # AI INJECTION: Generate AI insights for budget analysis
+            ai_insights = generate_ai_insights(budget_summary, "Budget Analysis")
+            
+            if not TEST_MODE:
+                # Display summary cards
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Total Income</h3>
+                        <h2>${budget_summary["total_income"]:,.2f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Total Expenses</h3>
+                        <h2>${budget_summary["total_expenses"]:,.2f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Monthly Savings</h3>
+                        <h2 style="color: {'green' if budget_summary["savings"] >= 0 else 'red'}">${budget_summary["savings"]:,.2f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col4:
+                    # FIXED: Standardized AI score display - show both System Score and AI Score
+                    ai_score = ai_insights.get("ai_score")
+                    if ai_score is not None:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>System Score</h3>
+                            <h2 style="color: {budget_summary["health_color"]}">{budget_summary["health_score"]}/100</h2>
+                            <p>AI Score: {ai_score}/100</p>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>System Score</h3>
+                            <h2 style="color: {budget_summary["health_color"]}">{budget_summary["health_score"]}/100</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                
+                # Financial Health Assessment
+                st.markdown(f'''
+                <div class="summary-card">
+                    <h3>Financial Health: {budget_summary["financial_health"]} (Score: {budget_summary["health_score"]}/100)</h3>
+                    <h4>Personalized Recommendations:</h4>
+                    <ul>
+                        {"".join(f"<li>{rec}</li>" for rec in budget_summary["recommendations"])}
+                    </ul>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                # AI INJECTION: Display AI suggestions for budget
+                display_ai_suggestions(ai_insights, "Budget Analysis")
+                
+                # Visualizations
+                st.subheader("Budget Analysis Dashboard")
+                budget_viz = FinancialVisualizer.plot_budget_summary(budget_summary)
+                st.plotly_chart(budget_viz, use_container_width=True)
+                
+                # Store in session state for chat context
+                st.session_state.budget_data = budget_summary
+                # AI INJECTION: Store AI insights for context
+                st.session_state.budget_ai_insights = ai_insights
+            
+            return budget_summary
+    
+    @staticmethod
+    def investing_flow():
+        """
+        Interactive investment planning flow with dynamic risk profile calculation.
+        
+        Returns:
+            Investment allocation data or None
+        """
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h2>📈 Investment Portfolio Builder</h2><p>Let\'s create an optimal investment strategy based on your goals and risk tolerance.</p></div>', unsafe_allow_html=True)
+        
+        # Initialize session state for form data
+        if 'investment_form_submitted' not in st.session_state:
+            st.session_state.investment_form_submitted = False
+        if 'investment_form_data' not in st.session_state:
+            st.session_state.investment_form_data = {}
+        
+        # Create form or use test data
+        if not TEST_MODE:
+            with st.form("investment_form"):
+                # Step 1: Investment Goals
+                st.subheader("Step 1: Investment Goals & Timeline")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    investment_goal = st.selectbox(
+                        "Primary Investment Goal",
+                        ["Retirement", "House Down Payment", "Emergency Fund", "Wealth Building", "Education", "Other"]
+                    )
+                    time_horizon = st.slider("Investment Time Horizon (years)", 1, 40, 10)
+                
+                with col2:
+                    current_age = st.number_input("Your Current Age", min_value=18, max_value=80, value=35)
+                    investment_capital = st.number_input("Initial Investment Amount", min_value=0.0, value=10000.0, step=1000.0)
+                
+                # Step 2: Risk Assessment
+                st.subheader("Step 2: Risk Tolerance Assessment")
+                
+                risk_questions = {
+                    "market_drop": "If your portfolio dropped 20% in a month, you would:",
+                    "investment_experience": "Your investment experience level:",
+                    "income_stability": "Your income stability:",
+                    "sleep_factor": "Regarding investment volatility:"
+                }
+                
+                risk_answers = {}
+                
+                risk_answers["market_drop"] = st.radio(
+                    risk_questions["market_drop"],
+                    ["Panic and sell everything", "Feel uncomfortable but hold", "See it as a buying opportunity"],
+                    key="market_drop"
+                )
+                
+                risk_answers["investment_experience"] = st.radio(
+                    risk_questions["investment_experience"],
+                    ["Beginner (< 2 years)", "Intermediate (2-10 years)", "Advanced (> 10 years)"],
+                    key="investment_experience"
+                )
+                
+                risk_answers["income_stability"] = st.radio(
+                    risk_questions["income_stability"],
+                    ["Unstable/Variable", "Stable", "Very Stable with Growth"],
+                    key="income_stability"
+                )
+                
+                risk_answers["sleep_factor"] = st.radio(
+                    risk_questions["sleep_factor"],
+                    ["I need stable, predictable returns", "I can handle some ups and downs", "I'm comfortable with high volatility for higher returns"],
+                    key="sleep_factor"
+                )
+                
+                # Submit button
+                submitted = st.form_submit_button("Generate Investment Portfolio", type="primary")
+        else:
+            # Test mode
+            submitted = True
+            time_horizon = 15
+            current_age = 35
+            investment_capital = 25000.0
+            risk_answers = {
+                "market_drop": "See it as a buying opportunity",
+                "investment_experience": "Intermediate (2-10 years)",
+                "income_stability": "Stable",
+                "sleep_factor": "I can handle some ups and downs"
+            }
+        
+        # Process form submission
+        if submitted:
+            # DYNAMIC risk profile calculation from questionnaire scoring
+            risk_score = 0
+            risk_weights = {
+                "market_drop": {"Panic and sell everything": 1, "Feel uncomfortable but hold": 2, "See it as a buying opportunity": 3},
+                "investment_experience": {"Beginner (< 2 years)": 1, "Intermediate (2-10 years)": 2, "Advanced (> 10 years)": 3},
+                "income_stability": {"Unstable/Variable": 1, "Stable": 2, "Very Stable with Growth": 3},
+                "sleep_factor": {"I need stable, predictable returns": 1, "I can handle some ups and downs": 2, "I'm comfortable with high volatility for higher returns": 3}
+            }
+            
+            for question, answer in risk_answers.items():
+                risk_score += risk_weights[question][answer]
+            
+            # DYNAMIC risk profile determination
+            if risk_score <= 6:
+                risk_profile = "Conservative"
+            elif risk_score <= 9:
+                risk_profile = "Moderate"
+            else:
+                risk_profile = "Aggressive"
+            
+            st.session_state.investment_form_submitted = True
+            st.session_state.investment_form_data = {
+                'risk_profile': risk_profile,
+                'time_horizon': time_horizon,
+                'investment_capital': investment_capital,
+                'current_age': current_age
+            }
+        
+        # Display results if form has been submitted
+        if st.session_state.investment_form_submitted and st.session_state.investment_form_data:
+            form_data = st.session_state.investment_form_data
+            
+            if not TEST_MODE:
+                st.info(f"Based on your responses, your risk profile is: **{form_data['risk_profile']}**")
+            
+            # DYNAMIC allocation based on calculated risk profile, age, and time horizon
+            allocation_data = FinancialCalculator.calculate_investment_allocation(
+                form_data['risk_profile'], form_data['time_horizon'], form_data['investment_capital'], form_data['current_age']
+            )
+            
+            # AI INJECTION: Generate AI insights for investment analysis
+            ai_insights = generate_ai_insights(allocation_data, "Investment Analysis")
+            
+            if not TEST_MODE:
+                # Display allocation summary
+                st.subheader("Recommended Portfolio Allocation")
+                
+                col1, col2, col3 = st.columns(3)
+                allocation = allocation_data['allocation_percentages']
+                
+                with col1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Stocks</h3>
+                        <h2>{allocation["stocks"]}%</h2>
+                        <p>${allocation_data["allocation_dollars"]["stocks"]:,.0f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Bonds</h3>
+                        <h2>{allocation["bonds"]}%</h2>
+                        <p>${allocation_data["allocation_dollars"]["bonds"]:,.0f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Cash</h3>
+                        <h2>{allocation["cash"]}%</h2>
+                        <p>${allocation_data["allocation_dollars"]["cash"]:,.0f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                # FIXED: Standardized AI score display with expected return formatting
+                ai_score = ai_insights.get("ai_score")
+                if ai_score is not None:
+                    ai_score_text = f" | AI Score: {ai_score}/100"
+                else:
+                    ai_score_text = ""
+                
+                st.markdown(f'''
+                <div class="summary-card">
+                    <h3>Portfolio Metrics{ai_score_text}</h3>
+                    <p><strong>Expected Annual Return:</strong> {allocation_data["expected_annual_return"]:.1%}</p>
+                    <p><strong>Estimated Volatility:</strong> {allocation_data["volatility_estimate"]:.1%}</p>
+                    <p><strong>Risk Level:</strong> {allocation_data["risk_level"]}</p>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                # AI INJECTION: Display AI suggestions for investment
+                display_ai_suggestions(ai_insights, "Investment Analysis")
+                
+                # Projections
+                if allocation_data.get('projections'):
+                    st.subheader("Portfolio Growth Projections")
+                    projections_df = pd.DataFrame(allocation_data['projections']).T
+                    st.dataframe(projections_df.style.format("${:,.0f}"))
+                
+                # Visualizations
+                st.subheader("Investment Portfolio Analysis")
+                investment_viz = FinancialVisualizer.plot_investment_allocation(allocation_data)
+                st.plotly_chart(investment_viz, use_container_width=True)
+                
+                # Store in session state
+                st.session_state.investment_data = allocation_data
+                # AI INJECTION: Store AI insights
+                st.session_state.investment_ai_insights = ai_insights
+            
+            return allocation_data
+    
+    @staticmethod
+    def debt_repayment_flow():
+        """
+        Interactive debt repayment planning flow with fixed avalanche/snowball logic.
+        
+        Returns:
+            Debt analysis results or None
+        """
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h2>💳 Debt Freedom Planner</h2><p>Let\'s create a strategic plan to eliminate your debt efficiently.</p></div>', unsafe_allow_html=True)
+        
+        # Step 1: Debt Inventory
+        if not TEST_MODE:
+            st.subheader("Step 1: Your Current Debts")
+        
+        if 'debts' not in st.session_state:
+            st.session_state.debts = []
+        
+        if not TEST_MODE:
+            # Add new debt form
+            with st.expander("Add New Debt", expanded=len(st.session_state.debts) == 0):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")
+                    debt_balance = st.number_input("Current Balance", min_value=0.0, step=100.0)
+                
+                with col2:
+                    interest_rate = st.number_input("Interest Rate (%)", min_value=0.0, max_value=50.0, step=0.1)
+                    minimum_payment = st.number_input("Minimum Monthly Payment", min_value=0.0, step=10.0)
+                
+                if st.button("Add Debt"):
+                    if debt_name and debt_balance > 0:
+                        st.session_state.debts.append({
+                            'name': debt_name,
+                            'balance': debt_balance,
+                            'interest_rate': interest_rate,
+                            'minimum_payment': minimum_payment
+                        })
+                        st.success(f"Added {debt_name} to your debt list!")
+                        st.rerun()
+            
+            # Display current debts
+            if st.session_state.debts:
+                st.subheader("Your Current Debts")
+                debt_df = pd.DataFrame(st.session_state.debts)
+                debt_df['Balance'] = debt_df['balance'].apply(lambda x: f"${x:,.2f}")
+                debt_df['Interest Rate'] = debt_df['interest_rate'].apply(lambda x: f"{x:.1f}%")
+                debt_df['Min Payment'] = debt_df['minimum_payment'].apply(lambda x: f"${x:.2f}")
+                
+                display_df = debt_df[['name', 'Balance', 'Interest Rate', 'Min Payment']].copy()
+                display_df.columns = ['Debt Name', 'Balance', 'Interest Rate', 'Min Payment']
+                st.dataframe(display_df, use_container_width=True)
+                
+                # Clear debts button
+                if st.button("Clear All Debts"):
+                    st.session_state.debts = []
+                    st.rerun()
+        else:
+            # Test mode - use sample debts
+            st.session_state.debts = [
+                {'name': 'Credit Card 1', 'balance': 5000, 'interest_rate': 18.0, 'minimum_payment': 150},
+                {'name': 'Credit Card 2', 'balance': 3000, 'interest_rate': 22.0, 'minimum_payment': 100},
+                {'name': 'Student Loan', 'balance': 15000, 'interest_rate': 6.0, 'minimum_payment': 180}
+            ]
+        
+        # Step 2: Repayment Strategy
+        if st.session_state.debts:
+            if not TEST_MODE:
+                st.subheader("Step 2: Repayment Strategy")
+            
+            # Initialize session state for debt form
+            if 'debt_form_submitted' not in st.session_state:
+                st.session_state.debt_form_submitted = False
+            if 'debt_form_data' not in st.session_state:
+                st.session_state.debt_form_data = {}
+            
+            # Create form or use test data
+            if not TEST_MODE:
+                with st.form("debt_form"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        strategy = st.selectbox(
+                            "Choose Repayment Strategy",
+                            ["avalanche", "snowball"],
+                            format_func=lambda x: "Debt Avalanche (Highest Interest First)" if x == "avalanche" else "Debt Snowball (Smallest Balance First)"
+                        )
+                    
+                    with col2:
+                        extra_payment = st.number_input("Extra Monthly Payment Available", min_value=0.0, step=50.0)
+                    
+                    # Submit button
+                    submitted = st.form_submit_button("Create Debt Payoff Plan", type="primary")
+            else:
+                submitted = True
+                strategy = 'avalanche'
+                extra_payment = 200.0
+            
+            # Process form submission
+            if submitted:
+                st.session_state.debt_form_submitted = True
+                st.session_state.debt_form_data = {
+                    'strategy': strategy,
+                    'extra_payment': extra_payment
+                }
+            
+            # Display results if form has been submitted
+            if st.session_state.debt_form_submitted and st.session_state.debt_form_data:
+                form_data = st.session_state.debt_form_data
+                debt_analysis = FinancialCalculator.calculate_debt_payoff(st.session_state.debts, form_data['extra_payment'], form_data['strategy'])
+                
+                # AI INJECTION: Generate AI insights for debt analysis
+                ai_insights = generate_ai_insights(debt_analysis, "Debt Analysis")
+                
+                if not TEST_MODE:
+                    # Summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>Total Debt</h3>
+                            <h2>${debt_analysis["total_debt"]:,.2f}</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    
+                    with col2:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>Min Payments</h3>
+                            <h2>${debt_analysis["total_minimum_payment"]:,.2f}</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    
+                    with col3:
+                        # FIXED: If extra payment is 0, explicitly display "Interest Savings: $0"
+                        if form_data['extra_payment'] > 0:
+                            st.markdown(f'''
+                            <div class="metric-card">
+                                <h3>Interest Savings</h3>
+                                <h2 style="color: green">${debt_analysis["interest_savings"]:,.2f}</h2>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                        else:
+                            st.markdown(f'''
+                            <div class="metric-card">
+                                <h3>Interest Savings</h3>
+                                <h2>$0</h2>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                    
+                    with col4:
+                        # FIXED: Standardized AI score display - show both System Score and AI Score
+                        ai_score = ai_insights.get("ai_score")
+                        if ai_score is not None:
+                            st.markdown(f'''
+                            <div class="metric-card">
+                                <h3>System Score</h3>
+                                <h2>{100 - min(100, debt_analysis["total_debt"] / 1000):.0f}/100</h2>
+                                <p>AI Score: {ai_score}/100</p>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                        else:
+                            # FIXED: If extra payment is 0, explicitly display "Time Savings: 0 months"
+                            if form_data['extra_payment'] > 0:
+                                st.markdown(f'''
+                                <div class="metric-card">
+                                    <h3>Time Savings</h3>
+                                    <h2 style="color: green">{debt_analysis["time_savings_months"]:.0f} months</h2>
+                                </div>
+                                ''', unsafe_allow_html=True)
+                            else:
+                                st.markdown(f'''
+                                <div class="metric-card">
+                                    <h3>Time Savings</h3>
+                                    <h2>0 months</h2>
+                                </div>
+                                ''', unsafe_allow_html=True)
+                    
+                    # Detailed payoff plan
+                    st.subheader("Debt Payoff Priority Order")
+                    scenario_key = 'with_extra' if form_data['extra_payment'] > 0 else 'minimum_only'
+                    payoff_plan = debt_analysis['scenarios'][scenario_key]['payoff_plan']
+                    
+                    plan_df = pd.DataFrame(payoff_plan)
+                    if not plan_df.empty:
+                        plan_df['Balance'] = plan_df['balance'].apply(lambda x: f"${x:,.2f}")
+                        plan_df['Interest Rate'] = plan_df['interest_rate'].apply(lambda x: f"{x:.1f}%")
+                        plan_df['Monthly Payment'] = plan_df['monthly_payment'].apply(lambda x: f"${x:.2f}")
+                        plan_df['Interest Paid'] = plan_df['interest_paid'].apply(lambda x: f"${x:,.2f}")
+                        
+                        display_plan = plan_df[['priority', 'debt_name', 'Balance', 'Interest Rate', 'Monthly Payment', 'months_to_payoff', 'Interest Paid']].copy()
+                        display_plan.columns = ['Priority', 'Debt Name', 'Balance', 'Interest Rate', 'Monthly Payment', 'Months to Payoff', 'Total Interest']
+                        st.dataframe(display_plan, use_container_width=True)
+                    
+                    # Recommendations
+                    st.markdown(f'''
+                    <div class="summary-card">
+                        <h3>Debt Payoff Recommendations</h3>
+                        <ul>
+                            <li>🎯 Focus on paying ${debt_analysis["recommended_extra_payment"]:.0f} extra per month if possible</li>
+                            <li>📊 You're using the <strong>{form_data["strategy"].title()}</strong> method - {"pay highest interest rates first" if form_data["strategy"] == "avalanche" else "pay smallest balances first"}</li>
+                            <li>💡 Consider debt consolidation if you have high-interest credit cards</li>
+                            <li>🚫 Avoid taking on new debt during your payoff journey</li>
+                            <li>📱 Set up automatic payments to stay on track</li>
+                        </ul>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    # AI INJECTION: Display AI suggestions for debt
+                    display_ai_suggestions(ai_insights, "Debt Analysis")
+                    
+                    # Visualization
+                    st.subheader("Debt Analysis Dashboard")
+                    debt_viz = FinancialVisualizer.plot_debt_payoff(debt_analysis)
+                    st.plotly_chart(debt_viz, use_container_width=True)
+                    
+                    # Store in session state
+                    st.session_state.debt_data = debt_analysis
+                    # AI INJECTION: Store AI insights
+                    st.session_state.debt_ai_insights = ai_insights
+                
+                return debt_analysis
+    
+    @staticmethod
+    def retirement_planning_flow():
+        """
+        Interactive retirement planning flow with improved calculations.
+        
+        Returns:
+            Retirement analysis results or None
+        """
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h2>🏖️ Retirement Planning Assistant</h2><p>Let\'s ensure you\'re on track for a comfortable retirement.</p></div>', unsafe_allow_html=True)
+        
+        # Initialize session state for form data - FIXED to prevent re-loops
+        if 'retirement_form_submitted' not in st.session_state:
+            st.session_state.retirement_form_submitted = False
+        if 'retirement_form_data' not in st.session_state:
+            st.session_state.retirement_form_data = {}
+        
+        # Create form or use test data
+        if not TEST_MODE:
+            # FIXED: Use proper st.form to prevent re-run loops
+            with st.form("retirement_form"):
+                # Step 1: Current Situation
+                st.subheader("Step 1: Current Financial Situation")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    current_age = st.number_input("Current Age", min_value=18, max_value=80, value=35)
+                    retirement_age = st.number_input("Desired Retirement Age", min_value=50, max_value=80, value=65)
+                    current_income = st.number_input("Current Annual Income", min_value=0.0, value=75000.0, step=5000.0)
+                
+                with col2:
+                    current_savings = st.number_input("Current Retirement Savings", min_value=0.0, value=50000.0, step=5000.0)
+                    monthly_contribution = st.number_input("Current Monthly Contribution", min_value=0.0, value=500.0, step=50.0)
+                    employer_match = st.number_input("Employer Match (monthly)", min_value=0.0, value=0.0, step=50.0)
+                
+                # Step 2: Retirement Goals
+                st.subheader("Step 2: Retirement Lifestyle Goals")
+                
+                lifestyle_choice = st.selectbox(
+                    "Desired Retirement Lifestyle",
+                    ["Basic (60% of current income)", "Comfortable (80% of current income)", "Luxurious (100% of current income)"]
+                )
+                
+                replacement_ratios = {
+                    "Basic (60% of current income)": 0.60,
+                    "Comfortable (80% of current income)": 0.80,
+                    "Luxurious (100% of current income)": 1.00
+                }
+                
+                # Additional considerations
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    healthcare_inflation = st.checkbox("Account for higher healthcare costs", value=True)
+                    social_security = st.checkbox("Include Social Security benefits", value=True)
+                
+                with col2:
+                    inheritance_expected = st.number_input("Expected Inheritance", min_value=0.0, value=0.0, step=10000.0)
+                    other_retirement_income = st.number_input("Other Retirement Income (monthly)", min_value=0.0, value=0.0, step=100.0)
+                
+                # FIXED: Use st.form_submit_button to prevent re-runs
+                submitted = st.form_submit_button("Analyze Retirement Plan", type="primary")
+        else:
+            # Test mode
+            submitted = True
+            current_age = 35
+            retirement_age = 65
+            current_income = 75000.0
+            current_savings = 50000.0
+            monthly_contribution = 500.0
+            employer_match = 150.0
+        
+        # FIXED: Process form submission only when submitted
+        if submitted:
+            st.session_state.retirement_form_submitted = True
+            st.session_state.retirement_form_data = {
+                'current_age': current_age,
+                'retirement_age': retirement_age,
+                'current_income': current_income,
+                'current_savings': current_savings,
+                'monthly_contribution': monthly_contribution,
+                'employer_match': employer_match
+            }
+        
+        # FIXED: Display results only if form has been submitted and data exists
+        if st.session_state.retirement_form_submitted and st.session_state.retirement_form_data:
+            form_data = st.session_state.retirement_form_data
+            total_monthly_contribution = form_data['monthly_contribution'] + form_data['employer_match']
+            
+            # FIXED: Calculate retirement needs with proper values
+            retirement_analysis = FinancialCalculator.calculate_retirement_needs(
+                form_data['current_age'], form_data['retirement_age'], form_data['current_income'], 
+                form_data['current_savings'], total_monthly_contribution
+            )
+            
+            # AI INJECTION: Generate AI insights for retirement analysis
+            ai_insights = generate_ai_insights(retirement_analysis, "Retirement Analysis")
+            
+            if not TEST_MODE:
+                # Key metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Years to Retirement</h3>
+                        <h2>{retirement_analysis["years_to_retirement"]}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Projected Savings</h3>
+                        <h2>${retirement_analysis["projected_savings"]:,.0f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col3:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h3>Retirement Goal</h3>
+                        <h2>${retirement_analysis["retirement_corpus_needed"]:,.0f}</h2>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                
+                with col4:
+                    # FIXED: Standardized AI score display - show both System Score and AI Score
+                    ai_score = ai_insights.get("ai_score")
+                    gap = retirement_analysis["retirement_gap"]
+                    
+                    if ai_score is not None:
+                        gap_color = "red" if gap > 0 else "green"
+                        gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
+                        
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>System Score</h3>
+                            <h2 style="color: {gap_color}">{100 - min(100, gap/10000):.0f}/100</h2>
+                            <p>AI Score: {ai_score}/100</p>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                    else:
+                        gap_color = "red" if gap > 0 else "green"
+                        gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
+                        
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h3>Retirement Gap</h3>
+                            <h2 style="color: {gap_color}">{gap_text}</h2>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                
+                # Scenario comparison
+                st.subheader("Retirement Scenarios")
+                scenarios = retirement_analysis['scenarios']
+                
+                scenario_df = pd.DataFrame({
+                    'Scenario': ['Conservative', 'Current Plan', 'Aggressive'],
+                    'Monthly Contribution': [f"${scenarios['conservative']['monthly_contribution']:.0f}",
+                                           f"${scenarios['current']['monthly_contribution']:.0f}",
+                                           f"${scenarios['aggressive']['monthly_contribution']:.0f}"],
+                    'Projected Total': [f"${scenarios['conservative']['projected_total']:,.0f}",
+                                      f"${scenarios['current']['projected_total']:,.0f}",
+                                      f"${scenarios['aggressive']['projected_total']:,.0f}"],
+                    'Monthly Retirement Income': [f"${scenarios['conservative']['monthly_retirement_income']:,.0f}",
+                                                f"${scenarios['current']['monthly_retirement_income']:,.0f}",
+                                                f"${scenarios['aggressive']['monthly_retirement_income']:,.0f}"],
+                    'Income Replacement': [f"{scenarios['conservative']['replacement_ratio_achieved']:.1%}",
+                                         f"{scenarios['current']['replacement_ratio_achieved']:.1%}",
+                                         f"{scenarios['aggressive']['replacement_ratio_achieved']:.1%}"]
+                })
+                
+                st.dataframe(scenario_df, use_container_width=True)
+                
+                # FIXED Recommendations - proper logic
+                st.markdown(f'''
+                <div class="summary-card">
+                    <h3>Retirement Planning Recommendations</h3>
+                    <ul>
+                        {"".join(f"<li>{rec}</li>" for rec in retirement_analysis["recommendations"])}
+                    </ul>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                # AI INJECTION: Display AI suggestions for retirement
+                display_ai_suggestions(ai_insights, "Retirement Analysis")
+                
+                # FIXED: Action items with proper recommendation logic
+                gap = retirement_analysis["retirement_gap"]
+                required_contrib = retirement_analysis["required_monthly_contribution"]
+                current_contrib = total_monthly_contribution
+                
+                if gap > 0:
+                    increase_needed = max(0, required_contrib - current_contrib)
+                    if increase_needed > 0:
+                        st.warning(f"⚠️ To meet your retirement goal, consider increasing your monthly contribution by ${increase_needed:.0f}")
+                    else:
+                        st.success("🎉 You are already on track, no increase needed")
+                else:
+                    st.success("🎉 Congratulations! You're on track to meet your retirement goals!")
+                
+                # Visualization
+                st.subheader("Retirement Planning Dashboard")
+                retirement_viz = FinancialVisualizer.plot_retirement_projections(retirement_analysis)
+                st.plotly_chart(retirement_viz, use_container_width=True)
+                
+                # Store in session state
+                st.session_state.retirement_data = retirement_analysis
+                # AI INJECTION: Store AI insights
+                st.session_state.retirement_ai_insights = ai_insights
+            
+            return retirement_analysis
+
+class PersonaManager:
+    """Manage different financial advisor personas"""
+    
+    PERSONAS = {
+        "Friendly Coach": {
+            "description": "Encouraging and supportive, focuses on building confidence",
+            "tone": "friendly",
+            "emoji": "😊",
+            "style": "I'm here to cheer you on! Let's make your financial dreams come true together!"
+        },
+        "Practical Advisor": {
+            "description": "Direct and actionable, focuses on practical steps",
+            "tone": "practical",
+            "emoji": "💼",
+            "style": "Let's focus on concrete actions and realistic strategies that work."
+        },
+        "Conservative Planner": {
+            "description": "Risk-averse and cautious, emphasizes security",
+            "tone": "conservative",
+            "emoji": "🛡️",
+            "style": "Safety first! Let's build a solid foundation for your financial future."
+        }
+    }
+    
+    @staticmethod
+    def display_persona_selector():
+        """
+        Display persona selection interface.
+        
+        Returns:
+            Tuple of selected persona name and persona info
+        """
+        if TEST_MODE:
+            return "Friendly Coach", PersonaManager.PERSONAS["Friendly Coach"]
+            
+        st.sidebar.subheader("🎭 Choose Your Financial Advisor")
+        
+        selected_persona = st.sidebar.selectbox(
+            "Advisor Personality",
+            list(PersonaManager.PERSONAS.keys()),
+            index=0
+        )
+        
+        persona_info = PersonaManager.PERSONAS[selected_persona]
+        
+        st.sidebar.markdown(f'''
+        <div class="persona-card">
+            <h4>{persona_info["emoji"]} {selected_persona}</h4>
+            <p>{persona_info["description"]}</p>
+            <em>"{persona_info["style"]}"</em>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+        return selected_persona, persona_info
+
+def extract_text_from_pdf(file_path):
+    """
+    Extracts text from PDFs using PyMuPDF, falls back to OCR if needed.
+    
+    Args:
+        file_path: Path to the PDF file
+    
+    Returns:
+        List of text content from each page
+    """
+    if TEST_MODE:
+        return ["Test PDF content"]
+        
+    try:
+        doc = fitz.open(file_path)
+        text_list = [page.get_text("text") for page in doc if page.get_text("text").strip()]
+        doc.close()
+        return text_list if text_list else extract_text_from_images(file_path)
+    except Exception as e:
+        st.error(f"⚠️ Error extracting text from PDF: {e}")
+        return []
+
+def extract_text_from_images(pdf_path):
+    """
+    Extracts text from image-based PDFs using GPU-accelerated EasyOCR.
+    
+    Args:
+        pdf_path: Path to the PDF file
+    
+    Returns:
+        List of extracted text from each page
+    """
+    if reader is None or TEST_MODE:
+        return ["OCR not available in test mode"]
+    
+    try:
+        images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=5)
+        return ["\n".join(reader.readtext(np.array(img), detail=0)) for img in images]
+    except Exception as e:
+        st.error(f"⚠️ Error extracting text from images: {e}")
+        return []
+
+def setup_vectorstore(documents):
+    """
+    Creates a FAISS vector store using Hugging Face embeddings.
+    
+    Args:
+        documents: List of text documents
+    
+    Returns:
+        FAISS vectorstore instance or None
+    """
+    if TEST_MODE:
+        return None
+        
+    try:
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        
+        if DEVICE == "cuda":
+            embeddings.model = embeddings.model.to(torch.device("cuda"))
+        
+        text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        doc_chunks = text_splitter.split_text("\n".join(documents))
+        return FAISS.from_texts(doc_chunks, embeddings)
+    except Exception as e:
+        st.error(f"Error setting up vector store: {e}")
+        return None
+
+def create_chain(vectorstore):
+    """
+    Creates the chat chain with optimized retriever settings.
+    
+    Args:
+        vectorstore: FAISS vectorstore instance
+    
+    Returns:
+        ConversationalRetrievalChain instance or None
+    """
+    if TEST_MODE:
+        return None
+        
+    try:
+        # FIXED: Add safeguards - ensure memory exists before using it
+        if "memory" not in st.session_state:
+            st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, groq_api_key=groq_api_key)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        
+        return ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=retriever,
+            chain_type="stuff",
+            memory=st.session_state.memory,
+            verbose=False
+        )
+    except Exception as e:
+        st.error(f"Error creating conversation chain: {e}")
+        return None
+
+def get_fallback_response(user_input: str, persona: str) -> str:
+    """
+    Rule-based fallback responses when LLM is unavailable.
+    
+    Args:
+        user_input: User's input message
+        persona: Selected persona type
+    
+    Returns:
+        Appropriate fallback response string
+    """
+    user_input_lower = user_input.lower()
+    
+    # Budget-related responses
+    if any(word in user_input_lower for word in ['budget', 'expense', 'spending', 'money']):
+        if persona == "Friendly Coach":
+            return "😊 Great question about budgeting! I'd love to help you create a budget. Try using our Budget Flow above to get personalized recommendations!"
+        elif persona == "Practical Advisor":
+            return "💼 For budgeting, follow the 50/30/20 rule: 50% needs, 30% wants, 20% savings. Use our budgeting tool for detailed analysis."
+        else:
+            return "🛡️ A conservative approach to budgeting is essential. Start by tracking all expenses and prioritizing emergency savings."
+    
+    # Investment-related responses
+    elif any(word in user_input_lower for word in ['invest', 'portfolio', 'stocks', 'bonds']):
+        if persona == "Friendly Coach":
+            return "📈 Investing is exciting! Let's build a portfolio that matches your dreams. Check out our Investment Flow for personalized recommendations!"
+        elif persona == "Practical Advisor":
+            return "💼 Diversification is key. Consider low-cost index funds and match your risk tolerance to your time horizon."
+        else:
+            return "🛡️ Conservative investing focuses on capital preservation. Consider bonds, CDs, and blue-chip dividend stocks."
+    
+    # Debt-related responses
+    elif any(word in user_input_lower for word in ['debt', 'loan', 'credit card', 'payoff']):
+        if persona == "Friendly Coach":
+            return "💪 You can conquer your debt! Let's create a plan together. Our Debt Repayment Flow will help you become debt-free!"
+        elif persona == "Practical Advisor":
+            return "💼 Focus on high-interest debt first (avalanche method) or smallest balances (snowball method). Use our debt calculator."
+        else:
+            return "🛡️ Debt elimination should be your priority. Pay minimums on all debts, then attack the highest interest rate first."
+    
+    # Retirement-related responses
+    elif any(word in user_input_lower for word in ['retirement', 'retire', '401k', 'ira']):
+        if persona == "Friendly Coach":
+            return "🏖️ Your future self will thank you for planning now! Let's use our Retirement Planning Flow to secure your golden years!"
+        elif persona == "Practical Advisor":
+            return "💼 Start with employer 401(k) matching, then max out IRAs. Aim to save 10-15% of income for retirement."
+        else:
+            return "🛡️ Conservative retirement planning means starting early and saving consistently. Consider target-date funds for simplicity."
+    
+    # General financial advice
+    else:
+        if persona == "Friendly Coach":
+            return "😊 I'm here to help with all your financial questions! Try our guided flows above, or ask me about budgeting, investing, debt, or retirement planning!"
+        elif persona == "Practical Advisor":
+            return "💼 I can help with budgeting, investing, debt payoff, and retirement planning. What specific financial goal would you like to work on?"
+        else:
+            return "🛡️ Financial security comes from careful planning. I can help with conservative strategies for budgeting, investing, and retirement. What's your priority?"
+
+async def get_response(user_input, persona_info):
+    """
+    Get response from LLM or fallback system.
+    
+    Args:
+        user_input: User's input message
+        persona_info: Persona information dictionary
+    
+    Returns:
+        Response string from AI or fallback system
+    """
+    if TEST_MODE:
+        return "Test response from AI assistant"
+        
+    try:
+        if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
+            # Enhance prompt with persona and financial context
+            enhanced_prompt = f"""
+            You are a {persona_info['description']} financial advisor. {persona_info['style']}
+            
+            Context from previous financial analysis:
+            {get_financial_context()}
+            
+            User question: {user_input}
+            
+            Provide helpful, personalized financial advice in your characteristic style.
+            """
+            
+            # FIXED: Add safeguards - ensure memory exists
+            if "memory" not in st.session_state:
+                st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            
+            response = await asyncio.to_thread(
+                st.session_state.conversation_chain.invoke,
+                {"question": enhanced_prompt, "chat_history": st.session_state.memory.chat_memory.messages}
+            )
+            return response.get("answer", "I'm sorry, I couldn't process that.")
+        else:
+            # Use fallback system
+            return get_fallback_response(user_input, list(PersonaManager.PERSONAS.keys())[0])
+    except Exception as e:
+        return get_fallback_response(user_input, list(PersonaManager.PERSONAS.keys())[0])
+
+def get_financial_context():
+    """
+    Get context from previous financial analysis.
+    
+    Returns:
+        String containing financial context or default message
+    """
+    context = []
+    
+    if 'budget_data' in st.session_state:
+        budget = st.session_state.budget_data
+        context.append(f"Budget Analysis: Income ${budget['total_income']:,.0f}, Expenses ${budget['total_expenses']:,.0f}, Savings Rate {budget['savings_rate']:.1f}%")
+    
+    if 'investment_data' in st.session_state:
+        investment = st.session_state.investment_data
+        context.append(f"Investment Portfolio: {investment['risk_level']} risk profile, Expected return {investment['expected_annual_return']:.1%}")
+    
+    if 'debt_data' in st.session_state:
+        debt = st.session_state.debt_data
+        context.append(f"Debt Analysis: Total debt ${debt['total_debt']:,.0f}, Strategy: {debt['strategy']}")
+    
+    if 'retirement_data' in st.session_state:
+        retirement = st.session_state.retirement_data
+        context.append(f"Retirement Planning: {retirement['years_to_retirement']} years to retirement, Gap: ${retirement['retirement_gap']:,.0f}")
+    
+    return " | ".join(context) if context else "No previous financial analysis available."
+
+def run_tests():
+    """Run test scenarios to validate functionality"""
+    print("🧪 Running Financial App Tests...")
+    
+    # Test 1: Zero income budget
+    print("\n📊 Test 1: Zero income budget")
+    try:
+        budget_result = FinancialCalculator.calculate_budget_summary(0, {'housing': 1000})
+        assert budget_result['financial_health'] == 'Critical', "Should show critical health for zero income"
+        assert budget_result['health_score'] == 0, "Health score should be 0 for zero income"
+        print("✅ PASS: Zero income handled correctly")
+    except Exception as e:
+        print(f"❌ FAIL: {e}")
+    
+    # Test 2: High savings budget
+    print("\n💰 Test 2: High savings budget")
+    try:
+        expenses = {'housing': 2000, 'utilities': 300, 'groceries': 400}
+        budget_result = FinancialCalculator.calculate_budget_summary(8000, expenses)
+        assert budget_result['savings_rate'] > 20, "Should have high savings rate"
+        assert budget_result['health_score'] >= 70, "Should have high health score"
+        print(f"✅ PASS: High savings rate {budget_result['savings_rate']:.1f}%, Health score: {budget_result['health_score']}")
+    except Exception as e:
+        print(f"❌ FAIL: {e}")
+    
+    # Test 3: High debt analysis
+    print("\n💳 Test 3: High debt payoff analysis")
+    try:
+        debts = [
+            {'name': 'Credit Card', 'balance': 10000, 'interest_rate': 24.0, 'minimum_payment': 300}
+        ]
+        debt_result = FinancialCalculator.calculate_debt_payoff(debts, 200, 'avalanche')
+        assert debt_result['scenarios']['minimum_only']['total_months'] > 24, "Should take significant time to pay off high-interest debt"
+        assert debt_result['interest_savings'] > 0, "Extra payments should save interest"
+        print(f"✅ PASS: Debt payoff time {debt_result['scenarios']['minimum_only']['total_months']} months, Interest savings: ${debt_result['interest_savings']:,.0f}")
+    except Exception as e:
+        print(f"❌ FAIL: {e}")
+    
+    # Test 4: Investment risk profile calculation
+    print("\n📈 Test 4: Investment risk profile")
+    try:
+        allocation = FinancialCalculator.calculate_investment_allocation('aggressive', 25, 50000, 30)
+        assert allocation['allocation_percentages']['stocks'] >= 70, "Aggressive profile should have high stock allocation"
+        assert allocation['expected_annual_return'] > 0.08, "Should have reasonable expected return"
+        print(f"✅ PASS: Aggressive allocation - Stocks: {allocation['allocation_percentages']['stocks']}%, Expected return: {allocation['expected_annual_return']:.1%}")
+    except Exception as e:
+        print(f"❌ FAIL: {e}")
+    
+    # Test 5: Retirement planning
+    print("\n🏖️ Test 5: Retirement planning")
+    try:
+        retirement = FinancialCalculator.calculate_retirement_needs(35, 65, 75000, 50000, 600)
+        assert retirement['years_to_retirement'] == 30, "Should calculate years correctly"
+        assert retirement['retirement_corpus_needed'] > 0, "Should calculate required corpus"
+        print(f"✅ PASS: Retirement corpus needed: ${retirement['retirement_corpus_needed']:,.0f}, Gap: ${retirement['retirement_gap']:,.0f}")
+    except Exception as e:
+        print(f"❌ FAIL: {e}")
+    
+    # Test flows
+    print("\n🔄 Test 6: Financial flows")
+    try:
+        # Test budget flow
+        budget_data = FinancialFlows.budgeting_flow()
+        assert budget_data is not None, "Budget flow should return data"
+        
+        # Test investment flow  
+        investment_data = FinancialFlows.investing_flow()
+        assert investment_data is not None, "Investment flow should return data"
+        
+        # Test debt flow
+        debt_data = FinancialFlows.debt_repayment_flow()
+        assert debt_data is not None, "Debt flow should return data"
+        
+        # Test retirement flow
+        retirement_data = FinancialFlows.retirement_planning_flow()
+        assert retirement_data is not None, "Retirement flow should return data"
+        
+        print("✅ PASS: All financial flows working correctly")
+    except Exception as e:
+        print(f"❌ FAIL: Flow test failed: {e}")
+    
+    # Test 7: AI Integration
+    print("\n🤖 Test 7: AI Integration")
+    try:
+        # Test AI insights generation with sample data
+        sample_data = {'total_income': 5000, 'savings_rate': 15, 'health_score': 75}
+        ai_result = generate_ai_insights(sample_data, "Budget Analysis")
+        
+        assert 'ai_reasoning' in ai_result, "Should have AI reasoning"
+        assert 'ai_recommendations' in ai_result, "Should have AI recommendations"
+        assert isinstance(ai_result['ai_recommendations'], list), "Recommendations should be a list"
+        
+        print("✅ PASS: AI integration working correctly")
+    except Exception as e:
+        print(f"❌ FAIL: AI test failed: {e}")
+    
+    print("\n🎉 Test suite completed!")
+
+def main():
+    """Main application function"""
+    if TEST_MODE:
+        run_tests()
+        return
+    
+    # Header
+    st.markdown('<h1 class="main-header">🦙 AI Financial Advisor - LLAMA 3.3</h1>', unsafe_allow_html=True)
+    
+    # AI INJECTION: Add disclaimer note
+    st.info("💡 **Disclaimer**: AI suggestions are educational only and not financial advice. Always consult with a qualified financial professional for personalized guidance.")
+    
+    # Sidebar for persona selection and navigation
+    selected_persona, persona_info = PersonaManager.display_persona_selector()
+    
+    # Navigation
+    st.sidebar.subheader("📊 Financial Tools")
+    selected_flow = st.sidebar.selectbox(
+        "Choose a Financial Flow",
+        ["Chat Interface", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
+    )
+    
+    # PDF Upload Section
+    st.sidebar.subheader("📄 Document Analysis")
+    uploaded_files = st.sidebar.file_uploader(
+        "Upload Financial Documents", 
+        type=["pdf"], 
+        accept_multiple_files=True,
+        help="Upload bank statements, investment reports, or other financial documents"
+    )
+    
+    # === ENHANCED PDF-FIRST FLOW ===
+    if uploaded_files:
+        all_extracted_text = []
+        all_financial_data = []
+
+        for uploaded_file in uploaded_files:
+            # Use safe file handling with UUID prefix
+            safe_filename = f"{uuid.uuid4().hex}_{uploaded_file.name}"
+            file_path = os.path.join(tempfile.gettempdir(), safe_filename)
+
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            try:
+                extracted_text = extract_text_from_pdf(file_path)
+                all_extracted_text.extend(extracted_text)
+
+                # === ENHANCEMENT: Extract financial entities from PDF ===
+                full_text = "\n".join(extracted_text)
+                financial_entities = extract_financial_entities_from_text(full_text)
+                all_financial_data.append(financial_entities)
+
+                st.sidebar.success(f"✅ Processed {uploaded_file.name}")
+            except Exception as e:
+                st.sidebar.error(f"⚠️ Error processing {uploaded_file.name}: {e}")
+            finally:
+                # Clean up temporary file
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+
+        if all_extracted_text:
+            vectorstore = setup_vectorstore(all_extracted_text)
+            if vectorstore:
+                st.session_state.vectorstore = vectorstore
+                conversation_chain = create_chain(vectorstore)
+                if conversation_chain:
+                    st.session_state.conversation_chain = conversation_chain
+                    st.sidebar.info("📚 Documents ready for analysis!")
+                else:
+                    st.sidebar.warning("⚠️ Could not create conversation chain")
+            else:
+                st.sidebar.warning("⚠️ Could not process documents")
+
+        # === ENHANCEMENT: Auto-generate financial report from extracted data ===
+        if all_financial_data and any(fd['income'] or fd['expenses'] or fd['debts'] or fd['investments'] for fd in all_financial_data):
+            # Aggregate all extracted financial data
+            aggregated_income = []
+            aggregated_expenses = {}
+            aggregated_debts = []
+            aggregated_investments = []
+
+            for fd in all_financial_data:
+                aggregated_income.extend(fd.get('income', []))
+                for category, amount in fd.get('expenses', {}).items():
+                    aggregated_expenses[category] = aggregated_expenses.get(category, 0) + amount
+                aggregated_debts.extend(fd.get('debts', []))
+                aggregated_investments.extend(fd.get('investments', []))
+
+            # Calculate totals
+            total_income = sum(aggregated_income) if aggregated_income else 0
+            total_debt = sum(aggregated_debts) if aggregated_debts else 0
+            total_investments = sum(aggregated_investments) if aggregated_investments else 0
+            total_expenses = sum(aggregated_expenses.values())
+
+            if total_income > 0 or total_expenses > 0:
+                # Build structured financial data
+                financial_data = {
+                    "monthly_income": total_income,
+                    "expenses": aggregated_expenses,
+                    "debts": aggregated_debts,
+                    "investments": aggregated_investments,
+                    "savings": total_income - total_expenses,
+                    "extracted_from_pdf": True
+                }
+
+                # Store in session state
+                st.session_state.pdf_financial_data = financial_data
+                st.session_state.pdf_extracted_text = "\n".join(all_extracted_text)
+
+                # Show extracted data summary
+                st.sidebar.success("🎯 Financial data extracted!")
+                if st.sidebar.button("📊 View Auto-Generated Report"):
+                    st.session_state.show_pdf_report = True
+    
+    # === ENHANCEMENT: Display PDF-Generated Report ===
+    if st.session_state.get('show_pdf_report') and st.session_state.get('pdf_financial_data'):
+        st.markdown("## 📄 Auto-Generated Financial Report from PDF")
+
+        financial_data = st.session_state.pdf_financial_data
+
+        # Show extracted data
+        with st.expander("🔍 View Extracted Financial Data", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("### Income")
+                st.write(f"**Total Monthly Income:** ${financial_data['monthly_income']:,.2f}")
+
+                st.markdown("### Expenses")
+                for category, amount in financial_data['expenses'].items():
+                    st.write(f"- {category.title()}: ${amount:,.2f}")
+                st.write(f"**Total Expenses:** ${sum(financial_data['expenses'].values()):,.2f}")
+
+            with col2:
+                st.markdown("### Debts")
+                if financial_data['debts']:
+                    for i, debt in enumerate(financial_data['debts'], 1):
+                        st.write(f"- Debt {i}: ${debt:,.2f}")
+                    st.write(f"**Total Debt:** ${sum(financial_data['debts']):,.2f}")
+                else:
+                    st.write("No debts detected")
+
+                st.markdown("### Investments")
+                if financial_data['investments']:
+                    for i, inv in enumerate(financial_data['investments'], 1):
+                        st.write(f"- Investment {i}: ${inv:,.2f}")
+                    st.write(f"**Total Investments:** ${sum(financial_data['investments']):,.2f}")
+                else:
+                    st.write("No investments detected")
+
+        # Generate comprehensive AI analysis
+        with st.spinner("🤖 Generating AI analysis..."):
+            ai_analysis = generate_comprehensive_ai_analysis(financial_data)
+            st.session_state.pdf_ai_analysis = ai_analysis
+
+        # Display enhanced visualizations
+        create_enhanced_financial_visualizations(financial_data, ai_analysis)
+
+        # Display enhanced chat interface
+        qa_context = ai_analysis.get("qa_context", "")
+        display_enhanced_chat_interface(qa_context)
+
+        # Button to clear and start over
+        if st.button("🔄 Clear Report and Start Over"):
+            st.session_state.show_pdf_report = False
+            st.session_state.pdf_financial_data = None
+            st.session_state.pdf_ai_analysis = None
+            st.rerun()
+
+    # Main content area
+    elif selected_flow == "Smart Budgeting":
+        FinancialFlows.budgeting_flow()
+    elif selected_flow == "Investment Planning":
+        FinancialFlows.investing_flow()
+    elif selected_flow == "Debt Repayment":
+        FinancialFlows.debt_repayment_flow()
+    elif selected_flow == "Retirement Planning":
+        FinancialFlows.retirement_planning_flow()
+    else:
+        # Chat Interface
+        st.subheader(f"💬 Chat with {persona_info['emoji']} {selected_persona}")
+        
+        # Initialize chat history
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+        
+        # Display chat history
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        
+        # Chat input
+        if user_input := st.chat_input(f"Ask {selected_persona} about your finances..."):
+            # Add user message to chat history
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            
+            with st.chat_message("user"):
+                st.markdown(user_input)
+            
+            # Get AI response
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    try:
+                        assistant_response = asyncio.run(get_response(user_input, persona_info))
+                    except Exception as e:
+                        assistant_response = get_fallback_response(user_input, selected_persona)
+                
+                st.markdown(assistant_response)
+            
+            # Add assistant response to chat history
+            st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
+            
+            # FIXED: Add safeguards - initialize memory if missing before saving context
+            if "memory" not in st.session_state:
+                st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            
+            # Save to memory if available
+            st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
+    
+    # Footer with financial summary
+    if any(key in st.session_state for key in ['budget_data', 'investment_data', 'debt_data', 'retirement_data']):
+        st.markdown("---")
+        st.subheader("📊 Your Financial Summary")
+        
+        summary_cols = st.columns(4)
+        
+        if 'budget_data' in st.session_state:
+            with summary_cols[0]:
+                budget = st.session_state.budget_data
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('budget_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                ai_text = f" | AI: {ai_score}/100" if ai_score else ""
+                
+                st.markdown(f'''
+                <div class="metric-card">
+                    <h4>💰 Budget Health</h4>
+                    <p><strong>{budget["financial_health"]}</strong></p>
+                    <p>Savings Rate: {budget["savings_rate"]:.1f}%{ai_text}</p>
+                </div>
+                ''', unsafe_allow_html=True)
+        
+        if 'investment_data' in st.session_state:
+            with summary_cols[1]:
+                investment = st.session_state.investment_data
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('investment_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                ai_text = f" | Risk: {ai_score}/100" if ai_score else ""
+                
+                st.markdown(f'''
+                <div class="metric-card">
+                    <h4>📈 Investment Profile</h4>
+                    <p><strong>{investment["risk_level"]}</strong></p>
+                    <p>Expected Return: {investment["expected_annual_return"]:.1%}{ai_text}</p>
+                </div>
+                ''', unsafe_allow_html=True)
+        
+        if 'debt_data' in st.session_state:
+            with summary_cols[2]:
+                debt = st.session_state.debt_data
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('debt_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                ai_text = f" | Health: {ai_score}/100" if ai_score else ""
+                
+                st.markdown(f'''
+                <div class="metric-card">
+                    <h4>💳 Debt Status</h4>
+                    <p><strong>${debt["total_debt"]:,.0f}</strong></p>
+                    <p>Strategy: {debt["strategy"].title()}{ai_text}</p>
+                </div>
+                ''', unsafe_allow_html=True)
+        
+        if 'retirement_data' in st.session_state:
+            with summary_cols[3]:
+                retirement = st.session_state.retirement_data
+                # AI INJECTION: Show AI score if available
+                ai_insights = st.session_state.get('retirement_ai_insights', {})
+                ai_score = ai_insights.get('ai_score')
+                
+                gap_status = "On Track" if retirement["retirement_gap"] <= 0 else f"${retirement['retirement_gap']:,.0f} gap"
+                ai_text = f" | Readiness: {ai_score}/100" if ai_score else ""
+                
+                st.markdown(f'''
+                <div class="metric-card">
+                    <h4>🏖️ Retirement</h4>
+                    <p><strong>{retirement["years_to_retirement"]} years left</strong></p>
+                    <p>{gap_status}{ai_text}</p>
+                </div>
+                ''', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
