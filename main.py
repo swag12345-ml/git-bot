@@ -20,6 +20,9 @@ import easyocr  # GPU-accelerated OCR
 from pdf2image import convert_from_path  # Convert PDFs to images
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
+from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
+from langchain_core.memory import ConversationBufferMemory
+
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 
@@ -3617,4 +3620,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
