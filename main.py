@@ -21,8 +21,6 @@ from pdf2image import convert_from_path  # Convert PDFs to images
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
-from langchain_community.chains import ConversationalRetrievalChain
-from langchain_core.memory import ConversationBufferMemory
 
 
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -3622,6 +3620,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
