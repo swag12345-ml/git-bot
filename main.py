@@ -265,12 +265,38 @@ if not TEST_MODE:
             border: 1px solid #4b5563 !important;
         }
         
-        /* Metric styling */
+        /* Metric styling - FIXED overlap issues */
         .css-1xarl3l {
             background-color: #1f2937 !important;
             padding: 1rem !important;
             border-radius: 8px !important;
             border: 1px solid #4b5563 !important;
+        }
+
+        /* Fix metric card spacing to prevent overlap */
+        [data-testid="stMetric"] {
+            background-color: #1f2937;
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid #4b5563;
+            margin-bottom: 1rem;
+        }
+
+        [data-testid="stMetricValue"] {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #ffffff;
+        }
+
+        [data-testid="stMetricLabel"] {
+            font-size: 0.875rem;
+            color: #9ca3af;
+            margin-bottom: 0.5rem;
+        }
+
+        [data-testid="stMetricDelta"] {
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
         }
         
         /* Success/Warning/Error message styling */
@@ -397,14 +423,22 @@ def extract_financial_entities_from_text(text: str) -> Dict[str, Any]:
             except ValueError:
                 pass
 
-    # Extract expense categories
+    # Extract expense categories - EXPANDED PATTERNS FOR ALL MAJOR CATEGORIES
     expense_categories = {
-        "housing": [r'rent[:\s]+\$?([\d,]+\.?\d*)', r'mortgage[:\s]+\$?([\d,]+\.?\d*)'],
-        "utilities": [r'utilit(?:y|ies)[:\s]+\$?([\d,]+\.?\d*)', r'electric[:\s]+\$?([\d,]+\.?\d*)', r'water[:\s]+\$?([\d,]+\.?\d*)'],
-        "food": [r'food[:\s]+\$?([\d,]+\.?\d*)', r'groceries[:\s]+\$?([\d,]+\.?\d*)', r'dining[:\s]+\$?([\d,]+\.?\d*)'],
-        "transportation": [r'transportation[:\s]+\$?([\d,]+\.?\d*)', r'car payment[:\s]+\$?([\d,]+\.?\d*)', r'gas[:\s]+\$?([\d,]+\.?\d*)'],
-        "insurance": [r'insurance[:\s]+\$?([\d,]+\.?\d*)', r'health insurance[:\s]+\$?([\d,]+\.?\d*)'],
-        "entertainment": [r'entertainment[:\s]+\$?([\d,]+\.?\d*)', r'leisure[:\s]+\$?([\d,]+\.?\d*)'],
+        "housing": [r'rent[:\s]+\$?([\d,]+\.?\d*)', r'mortgage[:\s]+\$?([\d,]+\.?\d*)', r'property tax[:\s]+\$?([\d,]+\.?\d*)', r'hoa[:\s]+\$?([\d,]+\.?\d*)'],
+        "utilities": [r'utilit(?:y|ies)[:\s]+\$?([\d,]+\.?\d*)', r'electric(?:ity)?[:\s]+\$?([\d,]+\.?\d*)', r'water[:\s]+\$?([\d,]+\.?\d*)', r'gas[:\s]+\$?([\d,]+\.?\d*)', r'internet[:\s]+\$?([\d,]+\.?\d*)', r'phone[:\s]+\$?([\d,]+\.?\d*)', r'cable[:\s]+\$?([\d,]+\.?\d*)'],
+        "food": [r'food[:\s]+\$?([\d,]+\.?\d*)', r'groceries[:\s]+\$?([\d,]+\.?\d*)', r'dining[:\s]+\$?([\d,]+\.?\d*)', r'restaurant[s]?[:\s]+\$?([\d,]+\.?\d*)', r'eating out[:\s]+\$?([\d,]+\.?\d*)'],
+        "transportation": [r'transportation[:\s]+\$?([\d,]+\.?\d*)', r'car payment[:\s]+\$?([\d,]+\.?\d*)', r'gas(?:oline)?[:\s]+\$?([\d,]+\.?\d*)', r'fuel[:\s]+\$?([\d,]+\.?\d*)', r'auto[:\s]+\$?([\d,]+\.?\d*)', r'parking[:\s]+\$?([\d,]+\.?\d*)', r'public transit[:\s]+\$?([\d,]+\.?\d*)', r'uber[:\s]+\$?([\d,]+\.?\d*)', r'lyft[:\s]+\$?([\d,]+\.?\d*)'],
+        "insurance": [r'insurance[:\s]+\$?([\d,]+\.?\d*)', r'health insurance[:\s]+\$?([\d,]+\.?\d*)', r'auto insurance[:\s]+\$?([\d,]+\.?\d*)', r'life insurance[:\s]+\$?([\d,]+\.?\d*)', r'dental[:\s]+\$?([\d,]+\.?\d*)', r'vision[:\s]+\$?([\d,]+\.?\d*)'],
+        "entertainment": [r'entertainment[:\s]+\$?([\d,]+\.?\d*)', r'leisure[:\s]+\$?([\d,]+\.?\d*)', r'movies[:\s]+\$?([\d,]+\.?\d*)', r'streaming[:\s]+\$?([\d,]+\.?\d*)', r'netflix[:\s]+\$?([\d,]+\.?\d*)', r'spotify[:\s]+\$?([\d,]+\.?\d*)', r'subscription[s]?[:\s]+\$?([\d,]+\.?\d*)'],
+        "shopping": [r'shopping[:\s]+\$?([\d,]+\.?\d*)', r'clothing[:\s]+\$?([\d,]+\.?\d*)', r'retail[:\s]+\$?([\d,]+\.?\d*)', r'amazon[:\s]+\$?([\d,]+\.?\d*)'],
+        "healthcare": [r'healthcare[:\s]+\$?([\d,]+\.?\d*)', r'medical[:\s]+\$?([\d,]+\.?\d*)', r'doctor[:\s]+\$?([\d,]+\.?\d*)', r'pharmacy[:\s]+\$?([\d,]+\.?\d*)', r'prescription[s]?[:\s]+\$?([\d,]+\.?\d*)'],
+        "bills": [r'bills?[:\s]+\$?([\d,]+\.?\d*)', r'payment[s]?[:\s]+\$?([\d,]+\.?\d*)'],
+        "loans": [r'loan[s]?[:\s]+\$?([\d,]+\.?\d*)', r'student loan[:\s]+\$?([\d,]+\.?\d*)', r'personal loan[:\s]+\$?([\d,]+\.?\d*)'],
+        "emi": [r'emi[:\s]+\$?([\d,]+\.?\d*)', r'installment[:\s]+\$?([\d,]+\.?\d*)'],
+        "debt_payments": [r'debt payment[s]?[:\s]+\$?([\d,]+\.?\d*)', r'minimum payment[:\s]+\$?([\d,]+\.?\d*)'],
+        "savings": [r'savings[:\s]+\$?([\d,]+\.?\d*)', r'emergency fund[:\s]+\$?([\d,]+\.?\d*)'],
+        "other": [r'misc(?:ellaneous)?[:\s]+\$?([\d,]+\.?\d*)', r'other[:\s]+\$?([\d,]+\.?\d*)'],
     }
 
     for category, patterns in expense_categories.items():
@@ -670,32 +704,36 @@ def create_enhanced_financial_visualizations(financial_data: Dict[str, Any], ai_
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
+        savings_rate_val = float(metrics.get('savings_rate', 0))
         st.metric(
             "Savings Rate",
-            f"{metrics.get('savings_rate', 0):.1f}%",
-            delta=f"{metrics.get('savings_rate', 0) - 20:.1f}% vs target"
+            f"{savings_rate_val:.1f}%",
+            delta=f"{savings_rate_val - 20:.1f}% vs 20% target"
         )
 
     with col2:
+        health_score_val = float(metrics.get('financial_health_score', 0))
         st.metric(
             "Financial Health",
-            f"{metrics.get('financial_health_score', 0):.0f}/100",
-            delta="Good" if metrics.get('financial_health_score', 0) >= 70 else "Needs Work"
+            f"{health_score_val:.0f}/100",
+            delta="Good" if health_score_val >= 70 else "Needs Work"
         )
 
     with col3:
+        dti_val = float(metrics.get('dti', 0))
         st.metric(
             "DTI Ratio",
-            f"{metrics.get('dti', 0):.1%}",
-            delta="Healthy" if metrics.get('dti', 0) < 0.36 else "High",
+            f"{dti_val:.1%}",
+            delta="Healthy" if dti_val < 0.36 else "High",
             delta_color="inverse"
         )
 
     with col4:
+        emergency_months_val = float(metrics.get('emergency_fund_months', 0))
         st.metric(
             "Emergency Fund",
-            f"{metrics.get('emergency_fund_months', 0):.1f} mo",
-            delta="Ready" if metrics.get('emergency_fund_months', 0) >= 3 else "Build Up"
+            f"{emergency_months_val:.1f} mo",
+            delta="Ready" if emergency_months_val >= 3 else "Build Up"
         )
 
     # Display Charts
@@ -704,29 +742,55 @@ def create_enhanced_financial_visualizations(financial_data: Dict[str, Any], ai_
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
-        # Income vs Expenses Chart
+        # Income vs Expenses Chart - FIXED text overlap
         if financial_data.get("monthly_income") and financial_data.get("expenses"):
-            income = financial_data["monthly_income"]
+            income = float(financial_data["monthly_income"])
             expenses = financial_data["expenses"]
-            total_expenses = sum(expenses.values()) if isinstance(expenses, dict) else 0
+            total_expenses = float(sum(expenses.values())) if isinstance(expenses, dict) else 0
 
             fig1 = go.Figure(data=[
-                go.Bar(name='Income', x=['Monthly Cash Flow'], y=[income], marker_color='#10b981', text=[f'${income:,.0f}'], textposition='auto'),
-                go.Bar(name='Expenses', x=['Monthly Cash Flow'], y=[total_expenses], marker_color='#ef4444', text=[f'${total_expenses:,.0f}'], textposition='auto')
+                go.Bar(name='Income', x=['Monthly Cash Flow'], y=[income], marker_color='#10b981', text=[f'${income:,.0f}'], textposition='outside', textfont=dict(size=14)),
+                go.Bar(name='Expenses', x=['Monthly Cash Flow'], y=[total_expenses], marker_color='#ef4444', text=[f'${total_expenses:,.0f}'], textposition='outside', textfont=dict(size=14))
             ])
-            fig1.update_layout(title='Income vs Expenses', barmode='group', plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=400)
+            fig1.update_layout(
+                title='Income vs Expenses',
+                barmode='group',
+                plot_bgcolor='#1f2937',
+                paper_bgcolor='#1f2937',
+                font=dict(color='#ffffff'),
+                height=450,
+                margin=dict(t=50, b=50, l=50, r=50),
+                yaxis=dict(gridcolor='#374151')
+            )
             st.plotly_chart(fig1, use_container_width=True)
 
-        # Savings Rate Gauge
+        # Savings Rate Gauge - FIXED number overlap
+        savings_rate_value = float(metrics.get('savings_rate', 0))
         fig3 = go.Figure(go.Indicator(
             mode="gauge+number+delta",
-            value=metrics.get('savings_rate', 0),
+            value=savings_rate_value,
             domain={'x': [0, 1], 'y': [0, 1]},
-            title={'text': "Savings Rate (%)"},
+            title={'text': "Savings Rate (%)", 'font': {'size': 16}},
             delta={'reference': 20, 'increasing': {'color': "#10b981"}},
-            gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#3b82f6"}, 'steps': [{'range': [0, 10], 'color': "#ef4444"}, {'range': [10, 20], 'color': "#f59e0b"}, {'range': [20, 100], 'color': "#10b981"}]}
+            gauge={
+                'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "#ffffff"},
+                'bar': {'color': "#3b82f6"},
+                'steps': [
+                    {'range': [0, 10], 'color': "#ef4444"},
+                    {'range': [10, 20], 'color': "#f59e0b"},
+                    {'range': [20, 100], 'color': "#10b981"}
+                ],
+                'threshold': {'line': {'color': "white", 'width': 2}, 'thickness': 0.75, 'value': 20}
+            },
+            number={'font': {'size': 32}}
         ))
-        fig3.update_layout(plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=300)
+        fig3.update_layout(
+            plot_bgcolor='#1f2937',
+            paper_bgcolor='#1f2937',
+            font=dict(color='#ffffff', size=12),
+            height=350,
+            margin=dict(t=80, b=20, l=20, r=20)
+        )
         st.plotly_chart(fig3, use_container_width=True)
 
     with chart_col2:
@@ -740,18 +804,34 @@ def create_enhanced_financial_visualizations(financial_data: Dict[str, Any], ai_
                 fig2.update_layout(title='Expense Breakdown', plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=400)
                 st.plotly_chart(fig2, use_container_width=True)
 
-        # Debt Ratio Gauge
+        # Debt Ratio Gauge - FIXED number overlap
         if financial_data.get("debts") and financial_data.get("monthly_income"):
-            total_debt = sum(financial_data["debts"]) if isinstance(financial_data["debts"], list) else financial_data["debts"]
-            dti_ratio = metrics.get('dti', 0) * 100
+            total_debt = sum(financial_data["debts"]) if isinstance(financial_data["debts"], list) else float(financial_data["debts"])
+            dti_ratio = float(metrics.get('dti', 0)) * 100
             fig4 = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=dti_ratio,
                 domain={'x': [0, 1], 'y': [0, 1]},
-                title={'text': "Debt-to-Income Ratio (%)"},
-                gauge={'axis': {'range': [None, 50]}, 'bar': {'color': "#3b82f6"}, 'steps': [{'range': [0, 20], 'color': "#10b981"}, {'range': [20, 36], 'color': "#f59e0b"}, {'range': [36, 50], 'color': "#ef4444"}]}
+                title={'text': "Debt-to-Income Ratio (%)", 'font': {'size': 16}},
+                gauge={
+                    'axis': {'range': [None, 50], 'tickwidth': 1, 'tickcolor': "#ffffff"},
+                    'bar': {'color': "#3b82f6"},
+                    'steps': [
+                        {'range': [0, 20], 'color': "#10b981"},
+                        {'range': [20, 36], 'color': "#f59e0b"},
+                        {'range': [36, 50], 'color': "#ef4444"}
+                    ],
+                    'threshold': {'line': {'color': "white", 'width': 2}, 'thickness': 0.75, 'value': 36}
+                },
+                number={'font': {'size': 32}}
             ))
-            fig4.update_layout(plot_bgcolor='#1f2937', paper_bgcolor='#1f2937', font=dict(color='#ffffff'), height=300)
+            fig4.update_layout(
+                plot_bgcolor='#1f2937',
+                paper_bgcolor='#1f2937',
+                font=dict(color='#ffffff', size=12),
+                height=350,
+                margin=dict(t=80, b=20, l=20, r=20)
+            )
             st.plotly_chart(fig4, use_container_width=True)
 
     # Display Recommendations
@@ -850,11 +930,17 @@ def display_enhanced_chat_interface(financial_context: str):
         with st.chat_message("user"):
             st.markdown(user_question)
 
-        # Get AI response
+        # Get AI response with safe async handling
         with st.chat_message("assistant"):
             with st.spinner("Analyzing..."):
                 try:
-                    response = asyncio.run(get_enhanced_ai_response(user_question, financial_context))
+                    # FIXED: Use get_event_loop instead of asyncio.run for Streamlit
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        response = loop.run_until_complete(get_enhanced_ai_response(user_question, financial_context))
+                    finally:
+                        loop.close()
                 except Exception as e:
                     response = f"I apologize, but I encountered an error. Please try again."
 
@@ -3248,7 +3334,7 @@ def main():
     st.sidebar.subheader("📊 Financial Tools")
     selected_flow = st.sidebar.selectbox(
         "Choose a Financial Flow",
-        ["Demo Data", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
+        ["Chat Interface", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
     )
     
     # PDF Upload Section
@@ -3410,68 +3496,51 @@ def main():
     elif selected_flow == "Retirement Planning":
         FinancialFlows.retirement_planning_flow()
     else:
-        # Demo Data
-        st.markdown('<div class="flow-card"><h2>📊 Demo Data - Sample Financial Analysis</h2><p>Explore a comprehensive financial analysis using sample data to understand how the AI advisor works.</p></div>', unsafe_allow_html=True)
+        # Chat Interface
+        st.subheader(f"💬 Chat with {persona_info['emoji']} {selected_persona}")
+        
+        # Initialize chat history
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+        
+        # Display chat history
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        
+        # Chat input
+        if user_input := st.chat_input(f"Ask {selected_persona} about your finances..."):
+            # Add user message to chat history
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            
+            with st.chat_message("user"):
+                st.markdown(user_input)
+            
+            # Get AI response with safe async handling
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    try:
+                        # FIXED: Use get_event_loop instead of asyncio.run for Streamlit
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            assistant_response = loop.run_until_complete(get_response(user_input, persona_info))
+                        finally:
+                            loop.close()
+                    except Exception as e:
+                        assistant_response = get_fallback_response(user_input, selected_persona)
 
-        # Hard-coded demo financial data
-        demo_financial_data = {
-            "monthly_income": 5000,
-            "expenses": {
-                "housing": 1500,
-                "utilities": 300,
-                "food": 600,
-                "transportation": 400,
-                "insurance": 200,
-                "entertainment": 250,
-                "shopping": 200,
-                "healthcare": 150,
-                "savings": 500,
-                "debt_payments": 300,
-                "other": 100
-            },
-            "debts": [5000, 2000],
-            "investments": [15000, 5000],
-            "savings": 2000
-        }
-
-        # Display demo data overview
-        st.subheader("📋 Sample Financial Profile")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown(f'''
-            <div class="metric-card">
-                <h3>Monthly Income</h3>
-                <h2>${demo_financial_data["monthly_income"]:,.2f}</h2>
-            </div>
-            ''', unsafe_allow_html=True)
-
-        with col2:
-            total_expenses = sum(demo_financial_data["expenses"].values())
-            st.markdown(f'''
-            <div class="metric-card">
-                <h3>Monthly Expenses</h3>
-                <h2>${total_expenses:,.2f}</h2>
-            </div>
-            ''', unsafe_allow_html=True)
-
-        with col3:
-            total_debt = sum(demo_financial_data["debts"])
-            st.markdown(f'''
-            <div class="metric-card">
-                <h3>Total Debt</h3>
-                <h2>${total_debt:,.2f}</h2>
-            </div>
-            ''', unsafe_allow_html=True)
-
-        # Generate comprehensive AI analysis for demo data
-        st.markdown("---")
-        with st.spinner("🤖 Generating AI analysis for demo data..."):
-            ai_analysis = generate_comprehensive_ai_analysis(demo_financial_data)
-
-        # Display enhanced visualizations
-        create_enhanced_financial_visualizations(demo_financial_data, ai_analysis)
+                st.markdown(assistant_response)
+            
+            # Add assistant response to chat history
+            st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
+            
+            # FIXED: Add safeguards - initialize memory if missing before saving context
+            if "memory" not in st.session_state:
+                st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            
+            # Save to memory if available
+            st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
     
     # Footer with financial summary
     if any(key in st.session_state for key in ['budget_data', 'investment_data', 'debt_data', 'retirement_data']):
