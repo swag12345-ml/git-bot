@@ -3337,7 +3337,7 @@ def main():
     st.sidebar.subheader("📊 Financial Tools")
     selected_flow = st.sidebar.selectbox(
         "Choose a Financial Flow",
-        ["Chat Interface", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
+        ["Demo Dashboard", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
     )
     
     # PDF Upload Section
@@ -3490,7 +3490,7 @@ def main():
             st.rerun()
 
     # Main content area
-    elif selected_flow == "Smart Budgeting":
+    if selected_flow == "Smart Budgeting":
         FinancialFlows.budgeting_flow()
     elif selected_flow == "Investment Planning":
         FinancialFlows.investing_flow()
@@ -3498,52 +3498,162 @@ def main():
         FinancialFlows.debt_repayment_flow()
     elif selected_flow == "Retirement Planning":
         FinancialFlows.retirement_planning_flow()
-    else:
-        # Chat Interface
-        st.subheader(f"💬 Chat with {persona_info['emoji']} {selected_persona}")
-        
-        # Initialize chat history
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
-        
-        # Display chat history
-        for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        # Chat input
-        if user_input := st.chat_input(f"Ask {selected_persona} about your finances..."):
-            # Add user message to chat history
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
-            
-            with st.chat_message("user"):
-                st.markdown(user_input)
-            
-            # Get AI response with safe async handling
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    try:
-                        # FIXED: Use get_event_loop instead of asyncio.run for Streamlit
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            assistant_response = loop.run_until_complete(get_response(user_input, persona_info))
-                        finally:
-                            loop.close()
-                    except Exception as e:
-                        assistant_response = get_fallback_response(user_input, selected_persona)
+    elif selected_flow == "Demo Dashboard":
+        # Demo Dashboard with static sample data
+        st.markdown('<div class="flow-card"><h2>📊 Demo Financial Dashboard</h2><p>Explore sample financial data and visualizations</p></div>', unsafe_allow_html=True)
 
-                st.markdown(assistant_response)
-            
-            # Add assistant response to chat history
-            st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
-            
-            # FIXED: Add safeguards - initialize memory if missing before saving context
-            if "memory" not in st.session_state:
-                st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-            
-            # Save to memory if available
-            st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
+        # Static sample data
+        demo_income = 7000
+        demo_expenses = {
+            "housing": 1800,
+            "utilities": 400,
+            "food": 900,
+            "transportation": 500,
+            "entertainment": 300,
+            "insurance": 350
+        }
+        demo_debts = [15000, 5000]
+        demo_savings = 2500
+
+        total_expenses = sum(demo_expenses.values())
+        monthly_savings = demo_income - total_expenses
+        savings_rate = (monthly_savings / demo_income * 100) if demo_income > 0 else 0
+        total_debt = sum(demo_debts)
+        dti_ratio = (total_debt / (demo_income * 12)) if demo_income > 0 else 0
+        emergency_fund_months = (demo_savings / total_expenses) if total_expenses > 0 else 0
+
+        # Calculate financial health score
+        health_score = 50
+        if savings_rate > 20:
+            health_score += 20
+        elif savings_rate > 10:
+            health_score += 10
+        if dti_ratio < 0.36:
+            health_score += 15
+        if emergency_fund_months >= 3:
+            health_score += 15
+        health_score = min(100, health_score)
+
+        # Display key metrics
+        st.markdown("### 📈 Key Financial Metrics")
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric(
+                "Savings Rate",
+                f"{savings_rate:.1f}%",
+                delta=f"{savings_rate - 20:.1f}% vs target"
+            )
+
+        with col2:
+            st.metric(
+                "Financial Health",
+                f"{health_score:.0f}/100",
+                delta="Good" if health_score >= 70 else "Needs Work"
+            )
+
+        with col3:
+            st.metric(
+                "DTI Ratio",
+                f"{dti_ratio:.1%}",
+                delta="Healthy" if dti_ratio < 0.36 else "High",
+                delta_color="inverse"
+            )
+
+        with col4:
+            st.metric(
+                "Emergency Fund",
+                f"{emergency_fund_months:.1f} mo",
+                delta="Ready" if emergency_fund_months >= 3 else "Build Up"
+            )
+
+        # Display charts
+        st.markdown("### 📊 Visual Analysis")
+
+        chart_col1, chart_col2 = st.columns(2)
+
+        with chart_col1:
+            # Income vs Expenses bar chart
+            fig1 = go.Figure(data=[
+                go.Bar(name='Income', x=['Monthly Cash Flow'], y=[demo_income], marker_color='#10b981', text=[f'${demo_income:,.0f}'], textposition='outside'),
+                go.Bar(name='Expenses', x=['Monthly Cash Flow'], y=[total_expenses], marker_color='#ef4444', text=[f'${total_expenses:,.0f}'], textposition='outside')
+            ])
+            fig1.update_layout(
+                title='Income vs Expenses',
+                barmode='group',
+                plot_bgcolor='#1f2937',
+                paper_bgcolor='#1f2937',
+                font=dict(color='#ffffff'),
+                height=400,
+                yaxis=dict(gridcolor='#374151')
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+
+            # Savings Rate Gauge
+            fig3 = go.Figure(go.Indicator(
+                mode="gauge+number+delta",
+                value=savings_rate,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': "Savings Rate (%)"},
+                delta={'reference': 20, 'increasing': {'color': "#10b981"}},
+                gauge={
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "#ffffff"},
+                    'bar': {'color': "#3b82f6"},
+                    'steps': [
+                        {'range': [0, 10], 'color': "#ef4444"},
+                        {'range': [10, 20], 'color': "#f59e0b"},
+                        {'range': [20, 100], 'color': "#10b981"}
+                    ],
+                    'threshold': {'line': {'color': "white", 'width': 2}, 'thickness': 0.75, 'value': 20}
+                }
+            ))
+            fig3.update_layout(
+                plot_bgcolor='#1f2937',
+                paper_bgcolor='#1f2937',
+                font=dict(color='#ffffff'),
+                height=350
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+
+        with chart_col2:
+            # Expense Breakdown Pie
+            labels = list(demo_expenses.keys())
+            values = list(demo_expenses.values())
+            fig2 = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.3)])
+            fig2.update_layout(
+                title='Expense Breakdown',
+                plot_bgcolor='#1f2937',
+                paper_bgcolor='#1f2937',
+                font=dict(color='#ffffff'),
+                height=400
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+            # Debt Ratio Gauge
+            dti_percent = dti_ratio * 100
+            fig4 = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=dti_percent,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                title={'text': "Debt-to-Income Ratio (%)"},
+                gauge={
+                    'axis': {'range': [None, 50], 'tickwidth': 1, 'tickcolor': "#ffffff"},
+                    'bar': {'color': "#3b82f6"},
+                    'steps': [
+                        {'range': [0, 20], 'color': "#10b981"},
+                        {'range': [20, 36], 'color': "#f59e0b"},
+                        {'range': [36, 50], 'color': "#ef4444"}
+                    ],
+                    'threshold': {'line': {'color': "white", 'width': 2}, 'thickness': 0.75, 'value': 36}
+                }
+            ))
+            fig4.update_layout(
+                plot_bgcolor='#1f2937',
+                paper_bgcolor='#1f2937',
+                font=dict(color='#ffffff'),
+                height=350
+            )
+            st.plotly_chart(fig4, use_container_width=True)
     
     # Footer with financial summary
     if any(key in st.session_state for key in ['budget_data', 'investment_data', 'debt_data', 'retirement_data']):
