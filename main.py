@@ -3,7 +3,7 @@ AI Financial Advisor Application - LLAMA 3.3
 A comprehensive financial planning tool with AI-powered insights
 
 Required pip packages:
-pip install streamlit plotly pandas numpy easyocr torch torchvision torchaudio opencv-python pdf2image pymupdf python-dotenv langchain-groq
+pip install streamlit plotly pandas numpy easyocr torch torchvision torchaudio opencv-python pdf2image pymupdf python-dotenv faiss-cpu sentence-transformers langchain langchain-community langchain-groq langchain-huggingface langchain-text-splitters
 """
 
 import streamlit as st  # Streamlit must be imported first
@@ -18,6 +18,9 @@ from dotenv import load_dotenv
 import fitz  # PyMuPDF for text extraction
 import easyocr  # GPU-accelerated OCR
 from pdf2image import convert_from_path  # Convert PDFs to images
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 
 import numpy as np
@@ -847,22 +850,104 @@ def create_enhanced_financial_visualizations(financial_data: Dict[str, Any], ai_
 # === AI CONVERSATION ENGINE - ENHANCEMENT ===
 # ===================================================================
 
-# Removed get_enhanced_ai_response - no longer needed without chat interface
-
-def display_enhanced_insights_summary(financial_context: str):
+async def get_enhanced_ai_response(user_input: str, financial_context: str = "") -> str:
     """
-    Display AI-generated insights summary (no chat interface).
+    Get AI response for user query with financial context.
+
+    Args:
+        user_input: User's question
+        financial_context: Additional financial context
+
+    Returns:
+        AI response string
+    """
+    if TEST_MODE:
+        return "This is a test response from the AI assistant."
+
+    try:
+        if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
+            # Enhanced prompt with financial context
+            enhanced_prompt = f"""
+Financial Context: {financial_context}
+
+User Question: {user_input}
+
+Provide specific, actionable financial advice based on the context above.
+"""
+
+            response = await asyncio.to_thread(
+                st.session_state.conversation_chain.invoke,
+                {"question": enhanced_prompt}
+            )
+            return response.get("answer", "I couldn't process that question.")
+        else:
+            # Use direct LLM call without retrieval
+            llm = ChatGroq(
+                model="llama-3.3-70b-versatile",
+                temperature=0.3,
+                groq_api_key=groq_api_key
+            )
+
+            response = llm.invoke(f"""
+You are a helpful financial advisor.
+
+Financial Context: {financial_context}
+
+User Question: {user_input}
+
+Provide clear, actionable advice.
+""")
+            return response.content
+
+    except Exception as e:
+        return f"I apologize, but I encountered an error: {str(e)}. Please try rephrasing your question."
+
+def display_enhanced_chat_interface(financial_context: str):
+    """
+    Display auto-start chat interface with financial context.
 
     Args:
         financial_context: QA context from AI analysis
     """
     st.markdown("---")
-    st.markdown("## 💡 AI Financial Insights")
-    st.info("📊 Your financial data has been analyzed automatically. Review the insights above and use the calculators in the sidebar for detailed planning.")
+    st.markdown("## 💬 Ask Questions About Your Finances")
+    st.info("Your financial data has been analyzed. Ask me anything about your financial situation!")
 
-    # Display key takeaways in expandable section
-    with st.expander("🔍 View Detailed Analysis Context"):
-        st.markdown(financial_context)
+    # Initialize chat history
+    if "enhanced_chat_messages" not in st.session_state:
+        st.session_state.enhanced_chat_messages = []
+
+    # Display chat history
+    for message in st.session_state.enhanced_chat_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Chat input
+    if user_question := st.chat_input("Ask me anything about your finances..."):
+        # Add user message
+        st.session_state.enhanced_chat_messages.append({"role": "user", "content": user_question})
+
+        with st.chat_message("user"):
+            st.markdown(user_question)
+
+        # Get AI response with safe async handling
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing..."):
+                try:
+                    # FIXED: Use get_event_loop instead of asyncio.run for Streamlit
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        response = loop.run_until_complete(get_enhanced_ai_response(user_question, financial_context))
+                    finally:
+                        loop.close()
+                except Exception as e:
+                    response = f"I apologize, but I encountered an error. Please try again."
+
+            st.markdown(response)
+
+        # Add assistant response
+        st.session_state.enhanced_chat_messages.append({"role": "assistant", "content": response})
 
 # ===================================================================
 # === END OF ENHANCEMENTS ===
@@ -2946,9 +3031,164 @@ def extract_text_from_images(pdf_path):
         st.error(f"⚠️ Error extracting text from images: {e}")
         return []
 
-# Removed setup_vectorstore and create_chain functions - no longer needed for PDF analysis
+def setup_vectorstore(documents):
+    """
+    Creates a FAISS vector store using Hugging Face embeddings.
+    
+    Args:
+        documents: List of text documents
+    
+    Returns:
+        FAISS vectorstore instance or None
+    """
+    if TEST_MODE:
+        return None
+        
+    try:
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        
+        if DEVICE == "cuda":
+            embeddings.model = embeddings.model.to(torch.device("cuda"))
+        
+        text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        doc_chunks = text_splitter.split_text("\n".join(documents))
+        return FAISS.from_texts(doc_chunks, embeddings)
+    except Exception as e:
+        st.error(f"Error setting up vector store: {e}")
+        return None
 
-# Removed get_fallback_response and get_response functions - no longer needed without chat interface
+def create_chain(vectorstore):
+    """
+    Creates the chat chain with optimized retriever settings.
+    
+    Args:
+        vectorstore: FAISS vectorstore instance
+    
+    Returns:
+        ConversationalRetrievalChain instance or None
+    """
+    if TEST_MODE:
+        return None
+        
+    try:
+        # FIXED: Add safeguards - ensure memory exists before using it
+        if "memory" not in st.session_state:
+            st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, groq_api_key=groq_api_key)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        
+        return ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=retriever,
+            chain_type="stuff",
+            memory=st.session_state.memory,
+            verbose=False
+        )
+    except Exception as e:
+        st.error(f"Error creating conversation chain: {e}")
+        return None
+
+def get_fallback_response(user_input: str, persona: str) -> str:
+    """
+    Rule-based fallback responses when LLM is unavailable.
+    
+    Args:
+        user_input: User's input message
+        persona: Selected persona type
+    
+    Returns:
+        Appropriate fallback response string
+    """
+    user_input_lower = user_input.lower()
+    
+    # Budget-related responses
+    if any(word in user_input_lower for word in ['budget', 'expense', 'spending', 'money']):
+        if persona == "Friendly Coach":
+            return "😊 Great question about budgeting! I'd love to help you create a budget. Try using our Budget Flow above to get personalized recommendations!"
+        elif persona == "Practical Advisor":
+            return "💼 For budgeting, follow the 50/30/20 rule: 50% needs, 30% wants, 20% savings. Use our budgeting tool for detailed analysis."
+        else:
+            return "🛡️ A conservative approach to budgeting is essential. Start by tracking all expenses and prioritizing emergency savings."
+    
+    # Investment-related responses
+    elif any(word in user_input_lower for word in ['invest', 'portfolio', 'stocks', 'bonds']):
+        if persona == "Friendly Coach":
+            return "📈 Investing is exciting! Let's build a portfolio that matches your dreams. Check out our Investment Flow for personalized recommendations!"
+        elif persona == "Practical Advisor":
+            return "💼 Diversification is key. Consider low-cost index funds and match your risk tolerance to your time horizon."
+        else:
+            return "🛡️ Conservative investing focuses on capital preservation. Consider bonds, CDs, and blue-chip dividend stocks."
+    
+    # Debt-related responses
+    elif any(word in user_input_lower for word in ['debt', 'loan', 'credit card', 'payoff']):
+        if persona == "Friendly Coach":
+            return "💪 You can conquer your debt! Let's create a plan together. Our Debt Repayment Flow will help you become debt-free!"
+        elif persona == "Practical Advisor":
+            return "💼 Focus on high-interest debt first (avalanche method) or smallest balances (snowball method). Use our debt calculator."
+        else:
+            return "🛡️ Debt elimination should be your priority. Pay minimums on all debts, then attack the highest interest rate first."
+    
+    # Retirement-related responses
+    elif any(word in user_input_lower for word in ['retirement', 'retire', '401k', 'ira']):
+        if persona == "Friendly Coach":
+            return "🏖️ Your future self will thank you for planning now! Let's use our Retirement Planning Flow to secure your golden years!"
+        elif persona == "Practical Advisor":
+            return "💼 Start with employer 401(k) matching, then max out IRAs. Aim to save 10-15% of income for retirement."
+        else:
+            return "🛡️ Conservative retirement planning means starting early and saving consistently. Consider target-date funds for simplicity."
+    
+    # General financial advice
+    else:
+        if persona == "Friendly Coach":
+            return "😊 I'm here to help with all your financial questions! Try our guided flows above, or ask me about budgeting, investing, debt, or retirement planning!"
+        elif persona == "Practical Advisor":
+            return "💼 I can help with budgeting, investing, debt payoff, and retirement planning. What specific financial goal would you like to work on?"
+        else:
+            return "🛡️ Financial security comes from careful planning. I can help with conservative strategies for budgeting, investing, and retirement. What's your priority?"
+
+async def get_response(user_input, persona_info):
+    """
+    Get response from LLM or fallback system.
+    
+    Args:
+        user_input: User's input message
+        persona_info: Persona information dictionary
+    
+    Returns:
+        Response string from AI or fallback system
+    """
+    if TEST_MODE:
+        return "Test response from AI assistant"
+        
+    try:
+        if "conversation_chain" in st.session_state and st.session_state.conversation_chain:
+            # Enhance prompt with persona and financial context
+            enhanced_prompt = f"""
+            You are a {persona_info['description']} financial advisor. {persona_info['style']}
+            
+            Context from previous financial analysis:
+            {get_financial_context()}
+            
+            User question: {user_input}
+            
+            Provide helpful, personalized financial advice in your characteristic style.
+            """
+            
+            # FIXED: Add safeguards - ensure memory exists
+            if "memory" not in st.session_state:
+                st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            
+            response = await asyncio.to_thread(
+                st.session_state.conversation_chain.invoke,
+                {"question": enhanced_prompt, "chat_history": st.session_state.memory.chat_memory.messages}
+            )
+            return response.get("answer", "I'm sorry, I couldn't process that.")
+        else:
+            # Use fallback system
+            return get_fallback_response(user_input, list(PersonaManager.PERSONAS.keys())[0])
+    except Exception as e:
+        return get_fallback_response(user_input, list(PersonaManager.PERSONAS.keys())[0])
 
 def get_financial_context():
     """
@@ -3094,7 +3334,7 @@ def main():
     st.sidebar.subheader("📊 Financial Tools")
     selected_flow = st.sidebar.selectbox(
         "Choose a Financial Flow",
-        ["Home", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
+        ["Chat Interface", "Smart Budgeting", "Investment Planning", "Debt Repayment", "Retirement Planning"]
     )
     
     # PDF Upload Section
@@ -3138,7 +3378,18 @@ def main():
                 except:
                     pass
 
-        # PDF text extracted - ready for automatic analysis
+        if all_extracted_text:
+            vectorstore = setup_vectorstore(all_extracted_text)
+            if vectorstore:
+                st.session_state.vectorstore = vectorstore
+                conversation_chain = create_chain(vectorstore)
+                if conversation_chain:
+                    st.session_state.conversation_chain = conversation_chain
+                    st.sidebar.info("📚 Documents ready for analysis!")
+                else:
+                    st.sidebar.warning("⚠️ Could not create conversation chain")
+            else:
+                st.sidebar.warning("⚠️ Could not process documents")
 
         # === ENHANCEMENT: Auto-generate financial report from extracted data ===
         if all_financial_data and any(fd['income'] or fd['expenses'] or fd['debts'] or fd['investments'] for fd in all_financial_data):
@@ -3224,9 +3475,9 @@ def main():
         # Display enhanced visualizations
         create_enhanced_financial_visualizations(financial_data, ai_analysis)
 
-        # Display enhanced insights summary (no chat)
+        # Display enhanced chat interface
         qa_context = ai_analysis.get("qa_context", "")
-        display_enhanced_insights_summary(qa_context)
+        display_enhanced_chat_interface(qa_context)
 
         # Button to clear and start over
         if st.button("🔄 Clear Report and Start Over"):
@@ -3245,39 +3496,51 @@ def main():
     elif selected_flow == "Retirement Planning":
         FinancialFlows.retirement_planning_flow()
     else:
-        # Welcome / Home Screen
-        st.markdown("## 👋 Welcome to AI Financial Advisor")
-        st.info("📄 **Upload financial documents** in the sidebar to automatically analyze them with AI, or select a financial tool above to get started.")
+        # Chat Interface
+        st.subheader(f"💬 Chat with {persona_info['emoji']} {selected_persona}")
+        
+        # Initialize chat history
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+        
+        # Display chat history
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        
+        # Chat input
+        if user_input := st.chat_input(f"Ask {selected_persona} about your finances..."):
+            # Add user message to chat history
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            
+            with st.chat_message("user"):
+                st.markdown(user_input)
+            
+            # Get AI response with safe async handling
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    try:
+                        # FIXED: Use get_event_loop instead of asyncio.run for Streamlit
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            assistant_response = loop.run_until_complete(get_response(user_input, persona_info))
+                        finally:
+                            loop.close()
+                    except Exception as e:
+                        assistant_response = get_fallback_response(user_input, selected_persona)
 
-        # Display getting started guide
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("""
-            <div class="flow-card">
-                <h3>📊 Financial Tools Available:</h3>
-                <ul>
-                    <li><strong>Smart Budgeting:</strong> Track income & expenses</li>
-                    <li><strong>Investment Planning:</strong> Build your portfolio</li>
-                    <li><strong>Debt Repayment:</strong> Eliminate debt faster</li>
-                    <li><strong>Retirement Planning:</strong> Secure your future</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-            st.markdown("""
-            <div class="flow-card">
-                <h3>📄 PDF Document Analyzer:</h3>
-                <p>Upload your financial documents (bank statements, investment reports, etc.) and our AI will:</p>
-                <ul>
-                    <li>Extract financial data automatically</li>
-                    <li>Generate comprehensive insights</li>
-                    <li>Provide personalized recommendations</li>
-                    <li>Create visual reports & charts</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
+                st.markdown(assistant_response)
+            
+            # Add assistant response to chat history
+            st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
+            
+            # FIXED: Add safeguards - initialize memory if missing before saving context
+            if "memory" not in st.session_state:
+                st.session_state.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            
+            # Save to memory if available
+            st.session_state.memory.save_context({"input": user_input}, {"output": assistant_response})
     
     # Footer with financial summary
     if any(key in st.session_state for key in ['budget_data', 'investment_data', 'debt_data', 'retirement_data']):
