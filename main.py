@@ -2937,9 +2937,60 @@ class FinancialFlows:
             
             return retirement_analysis
 
-
-  
+class PersonaManager:
+    """Manage different financial advisor personas"""
     
+    PERSONAS = {
+        "Friendly Coach": {
+            "description": "Encouraging and supportive, focuses on building confidence",
+            "tone": "friendly",
+            "emoji": "😊",
+            "style": "I'm here to cheer you on! Let's make your financial dreams come true together!"
+        },
+        "Practical Advisor": {
+            "description": "Direct and actionable, focuses on practical steps",
+            "tone": "practical",
+            "emoji": "💼",
+            "style": "Let's focus on concrete actions and realistic strategies that work."
+        },
+        "Conservative Planner": {
+            "description": "Risk-averse and cautious, emphasizes security",
+            "tone": "conservative",
+            "emoji": "🛡️",
+            "style": "Safety first! Let's build a solid foundation for your financial future."
+        }
+    }
+    
+    @staticmethod
+    def display_persona_selector():
+        """
+        Display persona selection interface.
+        
+        Returns:
+            Tuple of selected persona name and persona info
+        """
+        if TEST_MODE:
+            return "Friendly Coach", PersonaManager.PERSONAS["Friendly Coach"]
+            
+        st.sidebar.subheader("🎭 Choose Your Financial Advisor")
+        
+        selected_persona = st.sidebar.selectbox(
+            "Advisor Personality",
+            list(PersonaManager.PERSONAS.keys()),
+            index=0
+        )
+        
+        persona_info = PersonaManager.PERSONAS[selected_persona]
+        
+        st.sidebar.markdown(f'''
+        <div class="persona-card">
+            <h4>{persona_info["emoji"]} {selected_persona}</h4>
+            <p>{persona_info["description"]}</p>
+            <em>"{persona_info["style"]}"</em>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+        return selected_persona, persona_info
 
 def extract_text_from_pdf(file_path):
     """
@@ -3280,7 +3331,7 @@ def main():
     st.info("💡 **Disclaimer**: AI suggestions are educational only and not financial advice. Always consult with a qualified financial professional for personalized guidance.")
     
     # Sidebar for persona selection and navigation
-    
+    selected_persona, persona_info = PersonaManager.display_persona_selector()
     
     # Navigation
     st.sidebar.subheader("📊 Financial Tools")
@@ -3290,10 +3341,153 @@ def main():
     )
     
     # PDF Upload Section
-    
+    st.sidebar.subheader("📄 Document Analysis")
+    uploaded_files = st.sidebar.file_uploader(
+        "Upload Financial Documents", 
+        type=["pdf"], 
+        accept_multiple_files=True,
+        help="Upload bank statements, investment reports, or other financial documents"
+    )
     
     # === ENHANCED PDF-FIRST FLOW ===
+    if uploaded_files:
+        all_extracted_text = []
+        all_financial_data = []
+
+        for uploaded_file in uploaded_files:
+            # Use safe file handling with UUID prefix
+            safe_filename = f"{uuid.uuid4().hex}_{uploaded_file.name}"
+            file_path = os.path.join(tempfile.gettempdir(), safe_filename)
+
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            try:
+                extracted_text = extract_text_from_pdf(file_path)
+                all_extracted_text.extend(extracted_text)
+
+                # === ENHANCEMENT: Extract financial entities from PDF ===
+                full_text = "\n".join(extracted_text)
+                financial_entities = extract_financial_entities_from_text(full_text)
+                all_financial_data.append(financial_entities)
+
+                st.sidebar.success(f"✅ Processed {uploaded_file.name}")
+            except Exception as e:
+                st.sidebar.error(f"⚠️ Error processing {uploaded_file.name}: {e}")
+            finally:
+                # Clean up temporary file
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+
+        if all_extracted_text:
+            vectorstore = setup_vectorstore(all_extracted_text)
+            if vectorstore:
+                st.session_state.vectorstore = vectorstore
+                conversation_chain = create_chain(vectorstore)
+                if conversation_chain:
+                    st.session_state.conversation_chain = conversation_chain
+                    st.sidebar.info("📚 Documents ready for analysis!")
+                else:
+                    st.sidebar.warning("⚠️ Could not create conversation chain")
+            else:
+                st.sidebar.warning("⚠️ Could not process documents")
+
+        # === ENHANCEMENT: Auto-generate financial report from extracted data ===
+        if all_financial_data and any(fd['income'] or fd['expenses'] or fd['debts'] or fd['investments'] for fd in all_financial_data):
+            # Aggregate all extracted financial data
+            aggregated_income = []
+            aggregated_expenses = {}
+            aggregated_debts = []
+            aggregated_investments = []
+
+            for fd in all_financial_data:
+                aggregated_income.extend(fd.get('income', []))
+                for category, amount in fd.get('expenses', {}).items():
+                    aggregated_expenses[category] = aggregated_expenses.get(category, 0) + amount
+                aggregated_debts.extend(fd.get('debts', []))
+                aggregated_investments.extend(fd.get('investments', []))
+
+            # Calculate totals
+            total_income = sum(aggregated_income) if aggregated_income else 0
+            total_debt = sum(aggregated_debts) if aggregated_debts else 0
+            total_investments = sum(aggregated_investments) if aggregated_investments else 0
+            total_expenses = sum(aggregated_expenses.values())
+
+            if total_income > 0 or total_expenses > 0:
+                # Build structured financial data
+                financial_data = {
+                    "monthly_income": total_income,
+                    "expenses": aggregated_expenses,
+                    "debts": aggregated_debts,
+                    "investments": aggregated_investments,
+                    "savings": total_income - total_expenses,
+                    "extracted_from_pdf": True
+                }
+
+                # Store in session state
+                st.session_state.pdf_financial_data = financial_data
+                st.session_state.pdf_extracted_text = "\n".join(all_extracted_text)
+
+                # Show extracted data summary
+                st.sidebar.success("🎯 Financial data extracted!")
+                if st.sidebar.button("📊 View Auto-Generated Report"):
+                    st.session_state.show_pdf_report = True
     
+    # === ENHANCEMENT: Display PDF-Generated Report ===
+    if st.session_state.get('show_pdf_report') and st.session_state.get('pdf_financial_data'):
+        st.markdown("## 📄 Auto-Generated Financial Report from PDF")
+
+        financial_data = st.session_state.pdf_financial_data
+
+        # Show extracted data
+        with st.expander("🔍 View Extracted Financial Data", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("### Income")
+                st.write(f"**Total Monthly Income:** ${financial_data['monthly_income']:,.2f}")
+
+                st.markdown("### Expenses")
+                for category, amount in financial_data['expenses'].items():
+                    st.write(f"- {category.title()}: ${amount:,.2f}")
+                st.write(f"**Total Expenses:** ${sum(financial_data['expenses'].values()):,.2f}")
+
+            with col2:
+                st.markdown("### Debts")
+                if financial_data['debts']:
+                    for i, debt in enumerate(financial_data['debts'], 1):
+                        st.write(f"- Debt {i}: ${debt:,.2f}")
+                    st.write(f"**Total Debt:** ${sum(financial_data['debts']):,.2f}")
+                else:
+                    st.write("No debts detected")
+
+                st.markdown("### Investments")
+                if financial_data['investments']:
+                    for i, inv in enumerate(financial_data['investments'], 1):
+                        st.write(f"- Investment {i}: ${inv:,.2f}")
+                    st.write(f"**Total Investments:** ${sum(financial_data['investments']):,.2f}")
+                else:
+                    st.write("No investments detected")
+
+        # Generate comprehensive AI analysis
+        with st.spinner("🤖 Generating AI analysis..."):
+            ai_analysis = generate_comprehensive_ai_analysis(financial_data)
+            st.session_state.pdf_ai_analysis = ai_analysis
+
+        # Display enhanced visualizations
+        create_enhanced_financial_visualizations(financial_data, ai_analysis)
+
+        # Display enhanced chat interface
+        qa_context = ai_analysis.get("qa_context", "")
+        display_enhanced_chat_interface(qa_context)
+
+        # Button to clear and start over
+        if st.button("🔄 Clear Report and Start Over"):
+            st.session_state.show_pdf_report = False
+            st.session_state.pdf_financial_data = None
+            st.session_state.pdf_ai_analysis = None
+            st.rerun()
 
     # Main content area
     if selected_flow == "Smart Budgeting":
@@ -3536,9 +3730,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
 
 
