@@ -32,6 +32,9 @@ if not TEST_MODE:
         initial_sidebar_state="expanded"
     )
 
+    # Layout optimization
+    st.markdown("<style>div.block-container{padding-top:1rem;}</style>", unsafe_allow_html=True)
+
     # Custom CSS for dark theme financial advisor styling
     st.markdown("""
     <style>
@@ -75,7 +78,7 @@ if not TEST_MODE:
             padding: 1.5rem;
             border-radius: 12px;
             border-left: 5px solid #3b82f6;
-            margin: 1rem 0;
+            margin-bottom: 15px !important;
             box-shadow: 0 4px 16px rgba(0,0,0,0.2);
             color: #ffffff;
             border: 1px solid #4b5563;
@@ -233,13 +236,13 @@ if not TEST_MODE:
         }
 
         [data-testid="stMetricValue"] {
-            font-size: 1.5rem;
+            font-size: 1.3rem !important;
             font-weight: bold;
             color: #ffffff;
         }
 
         [data-testid="stMetricLabel"] {
-            font-size: 0.875rem;
+            font-size: 0.85rem !important;
             color: #9ca3af;
             margin-bottom: 0.5rem;
         }
@@ -657,7 +660,12 @@ class FinancialCalculator:
         )
 
         projections = {}
-        projection_years = [y for y in [5, 10, 20, 30] if y <= time_horizon]
+        # Dynamic projection intervals including user's chosen horizon
+        projection_years = sorted(set(
+            [5, 10, 15, 20, 25, 30, int(time_horizon)] if time_horizon > 0 else [5, 10, 20, 30]
+        ))
+        projection_years = [y for y in projection_years if y <= time_horizon]
+
         if not projection_years and time_horizon > 0:
             projection_years = [time_horizon]
 
@@ -971,8 +979,14 @@ class FinancialVisualizer:
             height=500,
             font=dict(size=12, color='white'),
             paper_bgcolor='#1f2937',
-            plot_bgcolor='#1f2937'
+            plot_bgcolor='#1f2937',
+            margin=dict(t=80, b=40, l=40, r=40)
         )
+
+        # Adjust annotations for better spacing
+        for ann in fig.get('layout', {}).get('annotations', []):
+            if ann:
+                ann['yshift'] = 25
 
         return fig
 
@@ -1056,8 +1070,15 @@ class FinancialVisualizer:
             title_text="Budget Analysis Dashboard",
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
-            font_color='white'
+            font_color='white',
+            margin=dict(t=80, b=40, l=40, r=40)
         )
+
+        # Adjust annotations for better spacing
+        for ann in fig.get('layout', {}).get('annotations', []):
+            if ann:
+                ann['yshift'] = 25
+
         return fig
 
     @staticmethod
@@ -1136,8 +1157,15 @@ class FinancialVisualizer:
             title_text="Investment Portfolio Analysis",
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
-            font_color='white'
+            font_color='white',
+            margin=dict(t=80, b=40, l=40, r=40)
         )
+
+        # Adjust annotations for better spacing
+        for ann in fig.get('layout', {}).get('annotations', []):
+            if ann:
+                ann['yshift'] = 25
+
         return fig
 
     @staticmethod
@@ -1200,8 +1228,15 @@ class FinancialVisualizer:
             title_text="Debt Payoff Analysis",
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
-            font_color='white'
+            font_color='white',
+            margin=dict(t=80, b=40, l=40, r=40)
         )
+
+        # Adjust annotations for better spacing
+        for ann in fig.get('layout', {}).get('annotations', []):
+            if ann:
+                ann['yshift'] = 25
+
         return fig
 
     @staticmethod
@@ -1293,8 +1328,15 @@ class FinancialVisualizer:
             title_text="Retirement Planning Analysis",
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
-            font_color='white'
+            font_color='white',
+            margin=dict(t=80, b=40, l=40, r=40)
         )
+
+        # Adjust annotations for better spacing
+        for ann in fig.get('layout', {}).get('annotations', []):
+            if ann:
+                ann['yshift'] = 25
+
         return fig
 
 class FinancialFlows:
@@ -1337,7 +1379,7 @@ class FinancialFlows:
                 st.markdown(display_metric_card("Health Score", f"{demo_budget['health_score']}/100", color=demo_budget['health_color']), unsafe_allow_html=True)
 
             budget_viz = FinancialVisualizer.plot_budget_summary(demo_budget)
-            st.plotly_chart(budget_viz, use_container_width=True)
+            st.plotly_chart(budget_viz, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
 
@@ -1356,7 +1398,7 @@ class FinancialFlows:
                 st.markdown(display_metric_card("Expected Return", f"{demo_investment['expected_annual_return']:.1%}"), unsafe_allow_html=True)
 
             investment_viz = FinancialVisualizer.plot_investment_allocation(demo_investment)
-            st.plotly_chart(investment_viz, use_container_width=True)
+            st.plotly_chart(investment_viz, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
 
@@ -1377,7 +1419,7 @@ class FinancialFlows:
                 st.markdown(display_metric_card("Retirement Gap", gap_text, color=gap_color), unsafe_allow_html=True)
 
             retirement_viz = FinancialVisualizer.plot_retirement_projections(demo_retirement)
-            st.plotly_chart(retirement_viz, use_container_width=True)
+            st.plotly_chart(retirement_viz, use_container_width=True, config={"displayModeBar": False})
 
     @staticmethod
     def budgeting_flow():
@@ -1387,6 +1429,14 @@ class FinancialFlows:
 
         if 'budget_form_data' not in st.session_state:
             st.session_state.budget_form_data = {}
+
+        # Reset form functionality
+        if not TEST_MODE:
+            if st.button("🔄 Reset Form"):
+                for key in list(st.session_state.keys()):
+                    if key.endswith("_form_data") or key.startswith("expense_"):
+                        del st.session_state[key]
+                st.rerun()
 
         if not TEST_MODE:
             with st.form("budget_form"):
@@ -1500,9 +1550,10 @@ class FinancialFlows:
 
                 display_ai_suggestions(ai_insights, "Budget Analysis")
 
+                st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Budget Analysis Dashboard")
                 budget_viz = FinancialVisualizer.plot_budget_summary(budget_summary)
-                st.plotly_chart(budget_viz, use_container_width=True)
+                st.plotly_chart(budget_viz, use_container_width=True, config={"displayModeBar": False})
 
                 st.session_state.budget_data = budget_summary
                 st.session_state.budget_ai_insights = ai_insights
@@ -1517,6 +1568,14 @@ class FinancialFlows:
 
         if 'investment_form_data' not in st.session_state:
             st.session_state.investment_form_data = {}
+
+        # Reset form functionality
+        if not TEST_MODE:
+            if st.button("🔄 Reset Form", key="reset_investment"):
+                for key in list(st.session_state.keys()):
+                    if key.endswith("_form_data") or key.startswith("expense_"):
+                        del st.session_state[key]
+                st.rerun()
 
         if not TEST_MODE:
             with st.form("investment_form"):
@@ -1668,13 +1727,15 @@ class FinancialFlows:
                 display_ai_suggestions(ai_insights, "Investment Analysis")
 
                 if allocation_data.get('projections'):
+                    st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                     st.subheader("Portfolio Growth Projections")
                     projections_df = pd.DataFrame(allocation_data['projections']).T
                     st.dataframe(projections_df.style.format("${:,.0f}"))
 
+                st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Investment Portfolio Analysis")
                 investment_viz = FinancialVisualizer.plot_investment_allocation(allocation_data)
-                st.plotly_chart(investment_viz, use_container_width=True)
+                st.plotly_chart(investment_viz, use_container_width=True, config={"displayModeBar": False})
 
                 st.session_state.investment_data = allocation_data
                 st.session_state.investment_ai_insights = ai_insights
@@ -1689,6 +1750,14 @@ class FinancialFlows:
 
         if 'debts' not in st.session_state:
             st.session_state.debts = []
+
+        # Reset form functionality
+        if not TEST_MODE:
+            if st.button("🔄 Reset Form", key="reset_debt"):
+                for key in list(st.session_state.keys()):
+                    if key.endswith("_form_data") or key.startswith("expense_") or key == "debts":
+                        del st.session_state[key]
+                st.rerun()
 
         if not TEST_MODE:
             st.subheader("Step 1: Your Current Debts")
@@ -1845,9 +1914,10 @@ class FinancialFlows:
 
                     display_ai_suggestions(ai_insights, "Debt Analysis")
 
+                    st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                     st.subheader("Debt Analysis Dashboard")
                     debt_viz = FinancialVisualizer.plot_debt_payoff(debt_analysis)
-                    st.plotly_chart(debt_viz, use_container_width=True)
+                    st.plotly_chart(debt_viz, use_container_width=True, config={"displayModeBar": False})
 
                     st.session_state.debt_data = debt_analysis
                     st.session_state.debt_ai_insights = ai_insights
@@ -1862,6 +1932,14 @@ class FinancialFlows:
 
         if 'retirement_form_data' not in st.session_state:
             st.session_state.retirement_form_data = {}
+
+        # Reset form functionality
+        if not TEST_MODE:
+            if st.button("🔄 Reset Form", key="reset_retirement"):
+                for key in list(st.session_state.keys()):
+                    if key.endswith("_form_data") or key.startswith("expense_"):
+                        del st.session_state[key]
+                st.rerun()
 
         if not TEST_MODE:
             with st.form("retirement_form"):
@@ -2011,9 +2089,10 @@ class FinancialFlows:
                 else:
                     st.success("🎉 Congratulations! You're on track to meet your retirement goals!")
 
+                st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Retirement Planning Dashboard")
                 retirement_viz = FinancialVisualizer.plot_retirement_projections(retirement_analysis)
-                st.plotly_chart(retirement_viz, use_container_width=True)
+                st.plotly_chart(retirement_viz, use_container_width=True, config={"displayModeBar": False})
 
                 st.session_state.retirement_data = retirement_analysis
                 st.session_state.retirement_ai_insights = ai_insights
@@ -2104,20 +2183,30 @@ def main():
     st.info("💡 **Disclaimer**: AI suggestions are educational only and not financial advice. Always consult with a qualified financial professional for personalized guidance.")
 
     st.sidebar.subheader("📊 Financial Tools")
-    selected_flow = st.sidebar.selectbox(
-        "Choose a Financial Analysis",
-        ["📊 Demo Dashboard", "Budget Analyzer", "Investment Allocation Planner", "Debt Payoff Planner", "Retirement Planner"]
+    menu = st.sidebar.selectbox(
+        "Choose Section",
+        ["Demo Dashboard", "Budgeting", "Investments", "Debt", "Retirement"]
     )
 
-    if selected_flow == "📊 Demo Dashboard":
+    # Initialize session state for navigation
+    if "selected_page" not in st.session_state:
+        st.session_state.selected_page = menu
+
+    # Handle navigation changes with rerun
+    if menu != st.session_state.selected_page:
+        st.session_state.selected_page = menu
+        st.rerun()
+
+    # Route to appropriate section
+    if st.session_state.selected_page == "Demo Dashboard":
         FinancialFlows.demo_dashboard()
-    elif selected_flow == "Budget Analyzer":
+    elif st.session_state.selected_page == "Budgeting":
         FinancialFlows.budgeting_flow()
-    elif selected_flow == "Investment Allocation Planner":
+    elif st.session_state.selected_page == "Investments":
         FinancialFlows.investing_flow()
-    elif selected_flow == "Debt Payoff Planner":
+    elif st.session_state.selected_page == "Debt":
         FinancialFlows.debt_repayment_flow()
-    elif selected_flow == "Retirement Planner":
+    elif st.session_state.selected_page == "Retirement":
         FinancialFlows.retirement_planning_flow()
 
     if any(key in st.session_state for key in ['budget_data', 'investment_data', 'debt_data', 'retirement_data']):
