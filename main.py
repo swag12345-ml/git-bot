@@ -983,11 +983,6 @@ class FinancialVisualizer:
             margin=dict(t=80, b=40, l=40, r=40)
         )
 
-        # Adjust annotations for better spacing
-        for ann in fig.get('layout', {}).get('annotations', []):
-            if ann:
-                ann['yshift'] = 25
-
         return fig
 
     @staticmethod
@@ -1075,9 +1070,9 @@ class FinancialVisualizer:
         )
 
         # Adjust annotations for better spacing
-        for ann in fig.get('layout', {}).get('annotations', []):
-            if ann:
-                ann['yshift'] = 25
+        if fig.layout.annotations:
+            for ann in fig.layout.annotations:
+                ann.yshift = 25
 
         return fig
 
@@ -1162,9 +1157,9 @@ class FinancialVisualizer:
         )
 
         # Adjust annotations for better spacing
-        for ann in fig.get('layout', {}).get('annotations', []):
-            if ann:
-                ann['yshift'] = 25
+        if fig.layout.annotations:
+            for ann in fig.layout.annotations:
+                ann.yshift = 25
 
         return fig
 
@@ -1233,9 +1228,9 @@ class FinancialVisualizer:
         )
 
         # Adjust annotations for better spacing
-        for ann in fig.get('layout', {}).get('annotations', []):
-            if ann:
-                ann['yshift'] = 25
+        if fig.layout.annotations:
+            for ann in fig.layout.annotations:
+                ann.yshift = 25
 
         return fig
 
@@ -1333,9 +1328,9 @@ class FinancialVisualizer:
         )
 
         # Adjust annotations for better spacing
-        for ann in fig.get('layout', {}).get('annotations', []):
-            if ann:
-                ann['yshift'] = 25
+        if fig.layout.annotations:
+            for ann in fig.layout.annotations:
+                ann.yshift = 25
 
         return fig
 
