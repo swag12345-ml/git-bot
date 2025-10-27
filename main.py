@@ -3280,7 +3280,7 @@ def main():
     st.info("💡 **Disclaimer**: AI suggestions are educational only and not financial advice. Always consult with a qualified financial professional for personalized guidance.")
     
     # Sidebar for persona selection and navigation
-    selected_persona, persona_info = PersonaManager.display_persona_selector()
+    
     
     # Navigation
     st.sidebar.subheader("📊 Financial Tools")
@@ -3536,6 +3536,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
