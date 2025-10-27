@@ -992,7 +992,9 @@ class FinancialVisualizer:
             rows=2, cols=2,
             subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'Financial Health Score'),
             specs=[[{"type": "bar"}, {"type": "indicator"}],
-                   [{"type": "pie"}, {"type": "indicator"}]]
+                   [{"type": "pie"}, {"type": "indicator"}]],
+            vertical_spacing=0.15,
+            horizontal_spacing=0.12
         )
 
         fig.add_trace(
@@ -1063,16 +1065,20 @@ class FinancialVisualizer:
             height=800,
             showlegend=False,
             title_text="Budget Analysis Dashboard",
+            title_font_size=20,
+            title_x=0.5,
+            title_y=0.98,
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
             font_color='white',
-            margin=dict(t=80, b=40, l=40, r=40)
+            margin=dict(t=100, b=60, l=60, r=60)
         )
 
-        # Adjust annotations for better spacing
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
-            for ann in fig.layout.annotations:
-                ann.yshift = 25
+            for i, ann in enumerate(fig.layout.annotations):
+                ann.font.size = 14
+                ann.yshift = 0
 
         return fig
 
@@ -1083,7 +1089,9 @@ class FinancialVisualizer:
             rows=2, cols=2,
             subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'Dollar Allocation'),
             specs=[[{"type": "pie"}, {"type": "scatter"}],
-                   [{"type": "scatter"}, {"type": "bar"}]]
+                   [{"type": "scatter"}, {"type": "bar"}]],
+            vertical_spacing=0.15,
+            horizontal_spacing=0.12
         )
 
         allocation = allocation_data['allocation_percentages']
@@ -1150,16 +1158,20 @@ class FinancialVisualizer:
             height=800,
             showlegend=True,
             title_text="Investment Portfolio Analysis",
+            title_font_size=20,
+            title_x=0.5,
+            title_y=0.98,
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
             font_color='white',
-            margin=dict(t=80, b=40, l=40, r=40)
+            margin=dict(t=100, b=60, l=60, r=60)
         )
 
-        # Adjust annotations for better spacing
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
-            for ann in fig.layout.annotations:
-                ann.yshift = 25
+            for i, ann in enumerate(fig.layout.annotations):
+                ann.font.size = 14
+                ann.yshift = 0
 
         return fig
 
@@ -1185,7 +1197,9 @@ class FinancialVisualizer:
             rows=2, cols=2,
             subplot_titles=('Debt Balances', 'Payoff Timeline', 'Interest Rates', 'Monthly Payments'),
             specs=[[{"type": "bar"}, {"type": "bar"}],
-                   [{"type": "bar"}, {"type": "bar"}]]
+                   [{"type": "bar"}, {"type": "bar"}]],
+            vertical_spacing=0.15,
+            horizontal_spacing=0.12
         )
 
         debts = scenarios.get('minimum_only', {}).get('payoff_plan', [])
@@ -1221,16 +1235,20 @@ class FinancialVisualizer:
             height=800,
             showlegend=False,
             title_text="Debt Payoff Analysis",
+            title_font_size=20,
+            title_x=0.5,
+            title_y=0.98,
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
             font_color='white',
-            margin=dict(t=80, b=40, l=40, r=40)
+            margin=dict(t=100, b=60, l=60, r=60)
         )
 
-        # Adjust annotations for better spacing
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
-            for ann in fig.layout.annotations:
-                ann.yshift = 25
+            for i, ann in enumerate(fig.layout.annotations):
+                ann.font.size = 14
+                ann.yshift = 0
 
         return fig
 
@@ -1241,7 +1259,9 @@ class FinancialVisualizer:
             rows=2, cols=2,
             subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'Income Replacement'),
             specs=[[{"type": "bar"}, {"type": "scatter"}],
-                   [{"type": "scatter"}, {"type": "indicator"}]]
+                   [{"type": "scatter"}, {"type": "indicator"}]],
+            vertical_spacing=0.15,
+            horizontal_spacing=0.12
         )
 
         scenarios = retirement_data.get('scenarios', {})
@@ -1321,16 +1341,20 @@ class FinancialVisualizer:
             height=800,
             showlegend=True,
             title_text="Retirement Planning Analysis",
+            title_font_size=20,
+            title_x=0.5,
+            title_y=0.98,
             paper_bgcolor='#1f2937',
             plot_bgcolor='#1f2937',
             font_color='white',
-            margin=dict(t=80, b=40, l=40, r=40)
+            margin=dict(t=100, b=60, l=60, r=60)
         )
 
-        # Adjust annotations for better spacing
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
-            for ann in fig.layout.annotations:
-                ann.yshift = 25
+            for i, ann in enumerate(fig.layout.annotations):
+                ann.font.size = 14
+                ann.yshift = 0
 
         return fig
 
