@@ -707,114 +707,144 @@ class FinancialCalculator:
 
     @staticmethod
     def calculate_debt_payoff(debts: List[Dict], extra_payment: float = 0, strategy: str = 'avalanche') -> Dict[str, Any]:
-        """Calculate comprehensive debt payoff strategy."""
+        """Accurate debt payoff calculator with realistic month-by-month simulation."""
         if not debts:
-            return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0, 'scenarios': {}, 'strategy': strategy}
+            return {
+                'total_debt': 0,
+                'payoff_plan': [],
+                'total_interest': 0,
+                'scenarios': {},
+                'strategy': strategy
+            }
 
         valid_debts = []
         for debt in debts:
             try:
                 balance = float(debt.get('balance', 0))
-                interest_rate = float(debt.get('interest_rate', 0))
-                minimum_payment = float(debt.get('minimum_payment', 0))
-
+                rate = float(debt.get('interest_rate', 0)) / 100 / 12
+                min_payment = float(debt.get('minimum_payment', 0))
                 if balance <= 0:
                     continue
-
-                monthly_interest = balance * (interest_rate / 100 / 12) if interest_rate > 0 else 0
-                if minimum_payment <= monthly_interest and interest_rate > 0:
-                    minimum_payment = monthly_interest * 1.2 + 25
-
-                if minimum_payment <= 0:
-                    minimum_payment = max(25, balance * 0.02)
-
+                if min_payment <= balance * rate:
+                    min_payment = max(25, balance * 0.02)
                 valid_debts.append({
                     'name': debt.get('name', 'Unknown Debt'),
                     'balance': balance,
-                    'interest_rate': interest_rate,
-                    'minimum_payment': minimum_payment
+                    'interest_rate': rate,
+                    'minimum_payment': min_payment
                 })
-            except (ValueError, TypeError):
+            except Exception:
                 continue
 
         if not valid_debts:
-            return {'total_debt': 0, 'payoff_plan': [], 'total_interest': 0, 'scenarios': {}, 'strategy': strategy}
+            return {
+                'total_debt': 0,
+                'payoff_plan': [],
+                'total_interest': 0,
+                'scenarios': {},
+                'strategy': strategy
+            }
 
-        total_debt = sum(debt['balance'] for debt in valid_debts)
-        total_minimum = sum(debt['minimum_payment'] for debt in valid_debts)
+        total_debt = sum(d['balance'] for d in valid_debts)
 
-        scenarios = {}
-        for scenario_name, extra in [('minimum_only', 0), ('with_extra', extra_payment)]:
-            payoff_plan = []
-            remaining_debts = [debt.copy() for debt in valid_debts]
+        def simulate(extra_amt: float):
+            debts_sim = [d.copy() for d in valid_debts]
 
+            # Sort debts based on strategy at the beginning
             if strategy == 'avalanche':
-                remaining_debts.sort(key=lambda x: x['interest_rate'], reverse=True)
+                debts_sim.sort(key=lambda x: x['interest_rate'], reverse=True)
             else:
-                remaining_debts.sort(key=lambda x: x['balance'])
+                debts_sim.sort(key=lambda x: x['balance'])
 
-            total_interest = 0
-            total_months = 0
-            available_extra = extra
+            # Track per-debt metrics
+            debt_stats = {i: {'months': 0, 'interest': 0.0, 'name': debts_sim[i]['name'],
+                              'balance': debts_sim[i]['balance'], 'rate': debts_sim[i]['interest_rate'],
+                              'min_pay': debts_sim[i]['minimum_payment']}
+                          for i in range(len(debts_sim))}
 
-            for i, debt in enumerate(remaining_debts):
-                # Apply extra payment correctly to the first debt
-                if scenario_name == 'with_extra' and extra > 0:
-                    monthly_payment = debt['minimum_payment'] + extra
-                else:
-                    monthly_payment = debt['minimum_payment']
+            months = 0
+            total_interest = 0.0
+            current_extra = extra_amt
 
-                balance = debt['balance']
-                rate = debt['interest_rate'] / 100 / 12 if debt['interest_rate'] > 0 else 0
+            while any(d['balance'] > 0.01 for d in debts_sim):
+                # Find first unpaid debt (priority debt)
+                priority_debt_idx = None
+                for i, d in enumerate(debts_sim):
+                    if d['balance'] > 0.01:
+                        priority_debt_idx = i
+                        break
 
-                if rate <= 0:
-                    months = int(np.ceil(balance / monthly_payment)) if monthly_payment > 0 else 999
-                elif monthly_payment <= balance * rate:
-                    months = 999
-                else:
-                    months = -np.log(1 - (balance * rate) / monthly_payment) / np.log(1 + rate)
-                    months = max(1, int(np.ceil(months)))
+                if priority_debt_idx is None:
+                    break
 
-                if rate > 0:
-                    total_payment = monthly_payment * months
-                    interest_paid = max(0, total_payment - balance)
-                else:
-                    interest_paid = 0
+                for i, d in enumerate(debts_sim):
+                    if d['balance'] <= 0:
+                        continue
 
-                total_interest += interest_paid
-                total_months += months
+                    payment = d['minimum_payment']
+                    if i == priority_debt_idx and current_extra > 0:
+                        payment += current_extra
 
+                    interest = d['balance'] * d['interest_rate']
+                    principal = max(0, payment - interest)
+                    d['balance'] = max(0, d['balance'] - principal)
+                    total_interest += interest
+
+                    debt_stats[i]['interest'] += interest
+                    if d['balance'] > 0.01:
+                        debt_stats[i]['months'] = months + 1
+
+                    # Once a debt is paid, roll over its payment to extra
+                    if d['balance'] <= 0.01 and debt_stats[i]['months'] == months + 1:
+                        current_extra += d['minimum_payment']
+
+                months += 1
+                if months > 1000:
+                    break
+
+            # Build payoff plan from debt_stats
+            payoff_plan = []
+            for i in range(len(debts_sim)):
+                stat = debt_stats[i]
                 payoff_plan.append({
-                    'debt_name': debt['name'],
-                    'balance': balance,
-                    'interest_rate': debt['interest_rate'],
-                    'monthly_payment': monthly_payment,
-                    'months_to_payoff': months,
-                    'interest_paid': interest_paid,
+                    'debt_name': stat['name'],
+                    'balance': stat['balance'],
+                    'interest_rate': stat['rate'] * 12 * 100,
+                    'monthly_payment': stat['min_pay'] + (extra_amt if i == 0 else 0),
+                    'months_to_payoff': max(1, stat['months']),
+                    'interest_paid': stat['interest'],
                     'priority': i + 1
                 })
 
-            if len(remaining_debts) > 0:
-                total_months = int(np.ceil(total_months / len(remaining_debts)))
+            return {'months': months, 'interest': total_interest, 'payoff_plan': payoff_plan}
 
-            scenarios[scenario_name] = {
-                'payoff_plan': payoff_plan,
-                'total_interest': total_interest,
-                'total_months': total_months,
-                'total_payments': total_minimum + (extra if scenario_name == 'with_extra' else 0)
-            }
+        # Run both cases: minimum payments only vs. with extra payment
+        base = simulate(0)
+        with_extra = simulate(extra_payment)
 
-        interest_savings = max(0, scenarios['minimum_only']['total_interest'] - scenarios['with_extra']['total_interest'])
-        time_savings = max(0, scenarios['minimum_only']['total_months'] - scenarios['with_extra']['total_months'])
+        interest_savings = max(0, base['interest'] - with_extra['interest'])
+        time_savings = max(0, base['months'] - with_extra['months'])
 
         return {
             'total_debt': total_debt,
-            'total_minimum_payment': total_minimum,
-            'scenarios': scenarios,
             'strategy': strategy,
+            'total_interest': base['interest'],
             'interest_savings': interest_savings,
             'time_savings_months': time_savings,
-            'recommended_extra_payment': max(50, total_debt * 0.02)
+            'recommended_extra_payment': max(50, total_debt * 0.02),
+            'scenarios': {
+                'minimum_only': {
+                    'total_interest': base['interest'],
+                    'total_months': base['months'],
+                    'payoff_plan': base['payoff_plan']
+                },
+                'with_extra': {
+                    'total_interest': with_extra['interest'],
+                    'total_months': with_extra['months'],
+                    'payoff_plan': with_extra['payoff_plan']
+                }
+            },
+            'payoff_plan': with_extra['payoff_plan'] if extra_payment > 0 else base['payoff_plan']
         }
 
     @staticmethod
@@ -1907,9 +1937,10 @@ class FinancialFlows:
                         ), unsafe_allow_html=True)
 
                     with col2:
+                        total_min_payment = sum(d['monthly_payment'] for d in debt_analysis['payoff_plan'])
                         st.markdown(display_metric_card(
                             "Min Payments",
-                            f"${debt_analysis['total_minimum_payment']:,.2f}"
+                            f"${total_min_payment:,.2f}"
                         ), unsafe_allow_html=True)
 
                     with col3:
