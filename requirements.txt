@@ -10,7 +10,11 @@ langchain-huggingface
 langchain-groq
 faiss-cpu
 numpy
+streamlit
 xhtml2pdf
+reportlab
+html5lib
+PyPDF2
 
 pandas               # For expense/portfolio data management
 matplotlib           # For expense and portfolio visualizations
