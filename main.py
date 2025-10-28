@@ -758,9 +758,11 @@ class FinancialCalculator:
             available_extra = extra
 
             for i, debt in enumerate(remaining_debts):
-                monthly_payment = debt['minimum_payment']
-                if scenario_name == 'with_extra' and i == 0 and available_extra > 0:
-                    monthly_payment += available_extra
+                # Apply extra payment correctly to the first debt
+                if scenario_name == 'with_extra' and extra > 0:
+                    monthly_payment = debt['minimum_payment'] + extra
+                else:
+                    monthly_payment = debt['minimum_payment']
 
                 balance = debt['balance']
                 rate = debt['interest_rate'] / 100 / 12 if debt['interest_rate'] > 0 else 0
@@ -791,9 +793,6 @@ class FinancialCalculator:
                     'interest_paid': interest_paid,
                     'priority': i + 1
                 })
-
-                if i == 0 and scenario_name == 'with_extra':
-                    available_extra = monthly_payment - debt['minimum_payment']
 
             if len(remaining_debts) > 0:
                 total_months = int(np.ceil(total_months / len(remaining_debts)))
