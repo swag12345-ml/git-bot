@@ -10,6 +10,7 @@ langchain-huggingface
 langchain-groq
 faiss-cpu
 numpy
+xhtml2pdf
 pandas               # For expense/portfolio data management
 matplotlib           # For expense and portfolio visualizations
 pillow
