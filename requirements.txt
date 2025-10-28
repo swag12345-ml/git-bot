@@ -1,39 +1,33 @@
 streamlit
+streamlit-autorefresh
+streamlit-pdf-viewer
 torch
-python-dotenv
-pymupdf              # PDF parsing
-easyocr              # OCR for image-based PDFs
-pdf2image
-langchain
-langchain-community
-langchain-huggingface
-langchain-groq
-faiss-cpu
+beautifulsoup4
+streamlit-option-menu
 numpy
-streamlit
-xhtml2pdf
-reportlab
-html5lib
-PyPDF2
-
-pandas               # For expense/portfolio data management
-matplotlib           # For expense and portfolio visualizations
 pillow
-sentence-transformers  # Required for HuggingFaceEmbeddings
-pytesseract
-streamlit
-python-dotenv
-PyMuPDF
-easyocr
+dnspython
+
+matplotlib
+pytz
+pdfkit
 pdf2image
+pymupdf
+plotly
+python-docx
+pytesseract
+nltk
+easyocr
+bcrypt
+python-dotenv
+tabulate
+
+# LangChain ecosystem
 langchain
+langchain-core
 langchain-community
-langchain-text-splitters
 langchain-huggingface
 langchain-groq
+sentence-transformers
 faiss-cpu
-torch
-numpy
-pandas
-plotly
-asyncio
+xhtml2pdf
