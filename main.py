@@ -340,16 +340,25 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
 
         if context_label == "Budget Analysis":
             prompt = f"""
-            You are an expert financial advisor. Analyze this budget data and provide insights.
+            You are an expert financial advisor with deep expertise in budgeting and money management.
+            Analyze the user's budget data and provide insights based entirely on your understanding —
+            not on any predefined scoring rules.
 
             Budget Data (JSON): {json.dumps(data, default=str)}
 
-            Tasks:
-            1. Provide a Financial Health Score (0-100) where 0 is critical and 100 is excellent
-            2. Give a brief 2-3 sentence reasoning for the score
-            3. Provide 3-5 concise, actionable recommendations
+            Instructions:
+            - Evaluate the user's income, expense patterns, savings rate, and financial sustainability.
+            - Assess overspending areas, debt payments, and emergency fund adequacy.
+            - Give an **AI Financial Health Score (0–100)** based solely on your judgment.
+            - Provide a short 2–3 sentence reasoning for the score.
+            - Include 3–5 clear, actionable recommendations to improve financial health.
 
-            Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            Output ONLY valid JSON in this exact format:
+            {{
+                "ai_score": <number between 0 and 100>,
+                "ai_reasoning": "<2–3 sentence reasoning>",
+                "ai_recommendations": ["recommendation 1", "recommendation 2", ...]
+            }}
             """
 
         elif context_label == "Investment Analysis":
@@ -1609,30 +1618,14 @@ class FinancialFlows:
 
                 with col4:
                     ai_score = ai_insights.get("ai_score")
-                    if ai_score is not None:
-                        st.markdown(display_metric_card(
-                            "AI Score",
-                            f"{ai_score}/100"
-                        ), unsafe_allow_html=True)
-                    else:
-                        st.markdown(display_metric_card(
-                            "Health Score",
-                            f"{budget_summary['health_score']}/100",
-                            color=budget_summary["health_color"]
-                        ), unsafe_allow_html=True)
-
-                recommendations_html = "".join([f"<li>{rec}</li>" for rec in budget_summary["recommendations"]])
-                st.markdown(f'''
-                <div class="summary-card">
-                    <h3>Financial Health: {budget_summary["financial_health"]} (Score: {budget_summary["health_score"]}/100)</h3>
-                    <h4>Personalized Recommendations:</h4>
-                    <ul>
-                        {recommendations_html}
-                    </ul>
-                </div>
-                ''', unsafe_allow_html=True)
+                    st.markdown(display_metric_card(
+                        "AI Financial Health Score",
+                        f"{ai_score if ai_score is not None else 'N/A'}/100"
+                    ), unsafe_allow_html=True)
 
                 display_ai_suggestions(ai_insights, "Budget Analysis")
+
+                st.info("💡 This score and analysis are generated entirely by AI, independent of any preset formulas or metrics.")
 
                 st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Budget Analysis Dashboard")
