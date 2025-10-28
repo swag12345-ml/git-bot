@@ -415,6 +415,10 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
             if not all(key in ai_result for key in required_keys):
                 return fallback_response
 
+            # Handle AI score as string
+            if isinstance(ai_result["ai_score"], str):
+                ai_result["ai_score"] = float(ai_result["ai_score"].replace("%",""))
+
             if ai_result["ai_score"] is not None:
                 ai_result["ai_score"] = max(0, min(100, float(ai_result["ai_score"])))
 
@@ -518,7 +522,7 @@ class FinancialCalculator:
 
         total_expenses = sum(expenses.values())
         savings = income - total_expenses
-        savings_rate = (savings / income * 100) if income > 0 else 0
+        savings_rate = max(0, savings / income * 100) if income > 0 else 0
 
         essential_categories = ['housing', 'utilities', 'groceries', 'transportation', 'insurance', 'healthcare']
         essential_expenses = sum(expenses.get(cat, 0) for cat in essential_categories if cat in expenses)
@@ -642,6 +646,12 @@ class FinancialCalculator:
         if allocation['stocks'] + allocation['bonds'] + allocation['cash'] != 100:
             diff = 100 - (allocation['stocks'] + allocation['bonds'] + allocation['cash'])
             allocation['bonds'] += diff
+
+        # Normalize allocation to ensure it sums to 100%
+        total = sum(allocation.values())
+        if total != 100:
+            for k in allocation:
+                allocation[k] = round(allocation[k] / total * 100)
 
         dollar_allocation = {
             asset: (percentage / 100) * capital
@@ -770,7 +780,7 @@ class FinancialCalculator:
                     interest_paid = 0
 
                 total_interest += interest_paid
-                total_months = max(total_months, months)
+                total_months += months
 
                 payoff_plan.append({
                     'debt_name': debt['name'],
@@ -784,6 +794,9 @@ class FinancialCalculator:
 
                 if i == 0 and scenario_name == 'with_extra':
                     available_extra = monthly_payment - debt['minimum_payment']
+
+            if len(remaining_debts) > 0:
+                total_months = int(np.ceil(total_months / len(remaining_debts)))
 
             scenarios[scenario_name] = {
                 'payoff_plan': payoff_plan,
@@ -809,6 +822,22 @@ class FinancialCalculator:
     def calculate_retirement_needs(current_age: int, retirement_age: int, current_income: float,
                                  current_savings: float, monthly_contribution: float) -> Dict[str, Any]:
         """Calculate comprehensive retirement planning."""
+        if retirement_age <= current_age:
+            return {
+                'error': 'Retirement age must be greater than current age.',
+                'current_age': current_age,
+                'retirement_age': retirement_age,
+                'years_to_retirement': 0,
+                'current_savings': current_savings,
+                'monthly_contribution': monthly_contribution,
+                'retirement_corpus_needed': 0,
+                'projected_savings': 0,
+                'retirement_gap': 0,
+                'required_monthly_contribution': 0,
+                'scenarios': {},
+                'recommendations': ['Please set retirement age greater than current age.']
+            }
+
         if current_income <= 0:
             return {
                 'current_age': current_age,
@@ -993,7 +1022,7 @@ class FinancialVisualizer:
             subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'Financial Health Score'),
             specs=[[{"type": "bar"}, {"type": "indicator"}],
                    [{"type": "pie"}, {"type": "indicator"}]],
-            vertical_spacing=0.15,
+            vertical_spacing=0.25,
             horizontal_spacing=0.12
         )
 
@@ -1009,21 +1038,22 @@ class FinancialVisualizer:
 
         fig.add_trace(
             go.Indicator(
-                mode="gauge+number+delta",
+                mode="gauge+number",
                 value=budget_data['savings_rate'],
-                domain={'x': [0, 1], 'y': [0, 1]},
-                title={'text': "Savings Rate (%)"},
+                title={'text': "<b>Savings Rate (%)</b>", 'font': {'size': 18, 'color': 'white'}},
+                number={'font': {'size': 36, 'color': 'white'}},
                 gauge={
-                    'axis': {'range': [None, 30]},
-                    'bar': {'color': budget_data['health_color']},
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
+                    'bar': {'color': 'darkblue', 'thickness': 0.3},
                     'steps': [
-                        {'range': [0, 10], 'color': "lightgray"},
-                        {'range': [10, 20], 'color': "gray"}
+                        {'range': [0, 50], 'color': '#d1d5db'},
+                        {'range': [50, 80], 'color': '#9ca3af'},
+                        {'range': [80, 100], 'color': '#4ade80'}
                     ],
                     'threshold': {
-                        'line': {'color': "red", 'width': 4},
+                        'line': {'color': 'red', 'width': 4},
                         'thickness': 0.75,
-                        'value': 20
+                        'value': 80
                     }
                 }
             ),
@@ -1045,24 +1075,28 @@ class FinancialVisualizer:
             go.Indicator(
                 mode="gauge+number",
                 value=budget_data['health_score'],
-                title={'text': f"Health Score: {budget_data['financial_health']}"},
+                title={'text': f"<b>Health Score: {budget_data['financial_health']}</b>", 'font': {'size': 18, 'color': 'white'}},
+                number={'font': {'size': 36, 'color': 'white'}},
                 gauge={
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': budget_data['health_color']},
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
+                    'bar': {'color': 'darkblue', 'thickness': 0.3},
                     'steps': [
-                        {'range': [0, 25], 'color': "#ffebee"},
-                        {'range': [25, 45], 'color': "#fff3e0"},
-                        {'range': [45, 65], 'color': "#f3e5f5"},
-                        {'range': [65, 80], 'color': "#e8f5e8"},
-                        {'range': [80, 100], 'color': "#c8e6c9"}
-                    ]
+                        {'range': [0, 50], 'color': '#d1d5db'},
+                        {'range': [50, 80], 'color': '#9ca3af'},
+                        {'range': [80, 100], 'color': '#4ade80'}
+                    ],
+                    'threshold': {
+                        'line': {'color': 'red', 'width': 4},
+                        'thickness': 0.75,
+                        'value': 80
+                    }
                 }
             ),
             row=2, col=2
         )
 
         fig.update_layout(
-            height=800,
+            height=950,
             showlegend=False,
             title_text="Budget Analysis Dashboard",
             title_font_size=20,
@@ -1078,7 +1112,7 @@ class FinancialVisualizer:
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
-                ann.yshift = 0
+                ann.yshift = 25
 
         return fig
 
@@ -1090,7 +1124,7 @@ class FinancialVisualizer:
             subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'Dollar Allocation'),
             specs=[[{"type": "pie"}, {"type": "scatter"}],
                    [{"type": "scatter"}, {"type": "bar"}]],
-            vertical_spacing=0.15,
+            vertical_spacing=0.25,
             horizontal_spacing=0.12
         )
 
@@ -1155,7 +1189,7 @@ class FinancialVisualizer:
         )
 
         fig.update_layout(
-            height=800,
+            height=950,
             showlegend=True,
             title_text="Investment Portfolio Analysis",
             title_font_size=20,
@@ -1171,7 +1205,7 @@ class FinancialVisualizer:
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
-                ann.yshift = 0
+                ann.yshift = 25
 
         return fig
 
@@ -1198,7 +1232,7 @@ class FinancialVisualizer:
             subplot_titles=('Debt Balances', 'Payoff Timeline', 'Interest Rates', 'Monthly Payments'),
             specs=[[{"type": "bar"}, {"type": "bar"}],
                    [{"type": "bar"}, {"type": "bar"}]],
-            vertical_spacing=0.15,
+            vertical_spacing=0.25,
             horizontal_spacing=0.12
         )
 
@@ -1232,7 +1266,7 @@ class FinancialVisualizer:
             )
 
         fig.update_layout(
-            height=800,
+            height=950,
             showlegend=False,
             title_text="Debt Payoff Analysis",
             title_font_size=20,
@@ -1248,7 +1282,7 @@ class FinancialVisualizer:
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
-                ann.yshift = 0
+                ann.yshift = 25
 
         return fig
 
@@ -1260,7 +1294,7 @@ class FinancialVisualizer:
             subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'Income Replacement'),
             specs=[[{"type": "bar"}, {"type": "scatter"}],
                    [{"type": "scatter"}, {"type": "indicator"}]],
-            vertical_spacing=0.15,
+            vertical_spacing=0.25,
             horizontal_spacing=0.12
         )
 
@@ -1319,16 +1353,18 @@ class FinancialVisualizer:
             go.Indicator(
                 mode="gauge+number",
                 value=current_replacement,
-                title={'text': "Income Replacement (%)"},
+                title={'text': "<b>Income Replacement (%)</b>", 'font': {'size': 18, 'color': 'white'}},
+                number={'font': {'size': 36, 'color': 'white'}},
                 gauge={
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': "darkblue"},
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
+                    'bar': {'color': 'darkblue', 'thickness': 0.3},
                     'steps': [
-                        {'range': [0, 50], 'color': "lightgray"},
-                        {'range': [50, 80], 'color': "gray"}
+                        {'range': [0, 50], 'color': '#d1d5db'},
+                        {'range': [50, 80], 'color': '#9ca3af'},
+                        {'range': [80, 100], 'color': '#4ade80'}
                     ],
                     'threshold': {
-                        'line': {'color': "red", 'width': 4},
+                        'line': {'color': 'red', 'width': 4},
                         'thickness': 0.75,
                         'value': 80
                     }
@@ -1338,7 +1374,7 @@ class FinancialVisualizer:
         )
 
         fig.update_layout(
-            height=800,
+            height=950,
             showlegend=True,
             title_text="Retirement Planning Analysis",
             title_font_size=20,
@@ -1354,7 +1390,7 @@ class FinancialVisualizer:
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
-                ann.yshift = 0
+                ann.yshift = 25
 
         return fig
 
