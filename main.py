@@ -2100,6 +2100,13 @@ class FinancialFlows:
                 form_data['current_savings'], total_monthly_contribution
             )
 
+            # Check for error condition
+            if "error" in retirement_analysis:
+                if not TEST_MODE:
+                    st.error(f"⚠️ {retirement_analysis['error']}")
+                    st.info("Please adjust your retirement age to be greater than your current age.")
+                return retirement_analysis
+
             ai_insights = generate_ai_insights(retirement_analysis, "Retirement Analysis")
 
             if not TEST_MODE:
