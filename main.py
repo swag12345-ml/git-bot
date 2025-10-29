@@ -340,16 +340,32 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
 
         if context_label == "Budget Analysis":
             prompt = f"""
-            You are an expert financial advisor. Analyze this budget data and provide insights.
+            You are an expert financial advisor with advanced analytical capabilities. Analyze this budget data thoroughly.
 
             Budget Data (JSON): {json.dumps(data, default=str)}
 
             Tasks:
-            1. Provide a Financial Health Score (0-100) where 0 is critical and 100 is excellent
-            2. Give a brief 2-3 sentence reasoning for the score
-            3. Provide 3-5 concise, actionable recommendations
+            1. Calculate a Financial Wellness Index (0-100) based on:
+               - Savings rate and emergency fund adequacy
+               - Housing and debt ratios
+               - Spending patterns vs. ideal benchmarks (50/30/20 rule)
+               - Overall financial stability
+
+            2. Provide 3-4 sentences of expert-level reasoning explaining the score, highlighting strengths and weaknesses.
+
+            3. Generate 5-7 personalized, data-driven recommendations including:
+               - Specific category overspending detection with exact percentages
+               - Savings goal suggestions based on income level
+               - Comparison to 50/30/20 ideal ratio (50% needs, 30% wants, 20% savings)
+               - Emergency fund status (recommend 3-6 months of expenses)
+               - Debt reduction strategies if applicable
+               - Monthly investment/saving targets with specific dollar amounts
+               - Long-term wealth building strategies
+
+            4. Add a brief motivational message at the end of your recommendations.
 
             Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            Example: {{"ai_score": 75, "ai_reasoning": "Your financial health is...", "ai_recommendations": ["Reduce dining expenses by 15%...", ...]}}
             """
 
         elif context_label == "Investment Analysis":
@@ -504,7 +520,7 @@ class FinancialCalculator:
 
     @staticmethod
     def calculate_budget_summary(income: float, expenses: Dict[str, float]) -> Dict[str, Any]:
-        """Calculate comprehensive budget summary with dynamic scores."""
+        """Calculate comprehensive budget summary with dynamic scores and benchmark comparison."""
         if income <= 0:
             return {
                 'total_income': 0,
@@ -576,6 +592,30 @@ class FinancialCalculator:
             health_status = "Critical"
             health_color = "#f44336"
 
+        # Benchmark ratio comparison
+        ideal_ratios = {
+            "housing": 30,
+            "utilities": 10,
+            "groceries": 15,
+            "transportation": 10,
+            "insurance": 10,
+            "savings": 20,
+            "discretionary": 15
+        }
+
+        recommendations = FinancialCalculator._get_budget_recommendations(savings_rate, expenses, income)
+
+        # Auto-flag overspending categories
+        for category, ideal_pct in ideal_ratios.items():
+            if category in expenses:
+                actual_pct = (expenses[category] / income * 100) if income > 0 else 0
+                if actual_pct > ideal_pct * 1.20:  # 20% above benchmark
+                    overspend_amount = expenses[category] - (income * ideal_pct / 100)
+                    recommendations.append(
+                        f"⚠️ {category.title()} spending is {actual_pct:.1f}% of income (ideal: {ideal_pct}%). "
+                        f"Consider reducing by ${overspend_amount:.0f}/month"
+                    )
+
         return {
             'total_income': income,
             'total_expenses': total_expenses,
@@ -587,7 +627,7 @@ class FinancialCalculator:
             'financial_health': health_status,
             'health_color': health_color,
             'health_score': health_score,
-            'recommendations': FinancialCalculator._get_budget_recommendations(savings_rate, expenses, income)
+            'recommendations': recommendations
         }
 
     @staticmethod
@@ -1597,6 +1637,7 @@ class FinancialFlows:
                 budget_summary["recommendations"] = ["No personalized recommendations available."]
 
             if not TEST_MODE:
+                # Aligned metrics in a single centered row
                 col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
@@ -1621,23 +1662,34 @@ class FinancialFlows:
 
                 with col4:
                     ai_score = ai_insights.get("ai_score")
-                    if ai_score is not None:
-                        st.markdown(display_metric_card(
-                            "AI Score",
-                            f"{ai_score}/100"
-                        ), unsafe_allow_html=True)
-                    else:
-                        st.markdown(display_metric_card(
-                            "Health Score",
-                            f"{budget_summary['health_score']}/100",
-                            color=budget_summary["health_color"]
-                        ), unsafe_allow_html=True)
+                    display_score = ai_score if ai_score is not None else budget_summary['health_score']
+                    st.markdown(display_metric_card(
+                        "AI Financial Score",
+                        f"{display_score:.0f}/100"
+                    ), unsafe_allow_html=True)
 
-                recommendations_html = "".join([f"<li>{rec}</li>" for rec in budget_summary["recommendations"]])
-                ai_display_score = budget_summary.get("ai_score", budget_summary["health_score"])
+                # Combine AI and calculated recommendations
+                all_recommendations = []
+                ai_recommendations = ai_insights.get("ai_recommendations", [])
+                if ai_recommendations:
+                    all_recommendations.extend(ai_recommendations)
+                if budget_summary["recommendations"]:
+                    # Add calculated recommendations that aren't duplicates
+                    for rec in budget_summary["recommendations"]:
+                        if not any(rec.lower() in ai_rec.lower() for ai_rec in ai_recommendations):
+                            all_recommendations.append(rec)
+
+                if not all_recommendations:
+                    all_recommendations = ["No personalized recommendations available."]
+
+                recommendations_html = "".join([f"<li>{rec}</li>" for rec in all_recommendations])
+                ai_display_score = ai_score if ai_score is not None else budget_summary["health_score"]
+                ai_reasoning = ai_insights.get("ai_reasoning", "")
+
                 st.markdown(f'''
                 <div class="summary-card">
-                    <h3>Financial Health: {budget_summary["financial_health"]} (Score: {ai_display_score}/100)</h3>
+                    <h3>Financial Health: {budget_summary["financial_health"]} (AI Score: {ai_display_score:.0f}/100)</h3>
+                    <p><strong>AI Analysis:</strong> {ai_reasoning}</p>
                     <h4>Personalized Recommendations:</h4>
                     <ul>
                         {recommendations_html}
@@ -1645,7 +1697,36 @@ class FinancialFlows:
                 </div>
                 ''', unsafe_allow_html=True)
 
-                display_ai_suggestions(ai_insights, "Budget Analysis")
+                # Savings projection chart
+                st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+                st.subheader("📊 Savings Projection (Next 12 Months)")
+
+                monthly_savings = budget_summary['savings']
+                months = list(range(1, 13))
+                cumulative_savings = [monthly_savings * month for month in months]
+
+                fig_projection = go.Figure()
+                fig_projection.add_trace(go.Scatter(
+                    x=months,
+                    y=cumulative_savings,
+                    mode='lines+markers',
+                    name='Projected Savings',
+                    line=dict(color='#4ade80', width=3),
+                    marker=dict(size=8)
+                ))
+
+                fig_projection.update_layout(
+                    title="Estimated Savings Growth Based on Current Monthly Savings",
+                    xaxis_title="Months",
+                    yaxis_title="Cumulative Savings ($)",
+                    height=400,
+                    paper_bgcolor='#1f2937',
+                    plot_bgcolor='#1f2937',
+                    font_color='white',
+                    hovermode='x unified'
+                )
+
+                st.plotly_chart(fig_projection, use_container_width=True, config={"displayModeBar": False})
 
                 st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Budget Analysis Dashboard")
