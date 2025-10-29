@@ -882,7 +882,10 @@ class FinancialCalculator:
                 'recommendations': ['Please enter valid income data.']
             }
 
-        years_to_retirement = max(1, retirement_age - current_age)
+        years_to_retirement = retirement_age - current_age
+        if years_to_retirement <= 0:
+            return {"error": "Retirement age must be greater than current age."}
+
         annual_contribution = monthly_contribution * 12
 
         inflation_rate = 0.03
@@ -946,13 +949,16 @@ class FinancialCalculator:
             else:
                 monthly_retirement_income = scenario_total / (retirement_years * 12)
 
-            replacement_ratio_achieved = min(1, (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0)
+            raw_ratio = (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0
+            replacement_ratio_achieved = min(1, raw_ratio)
+            display_ratio = f"{raw_ratio*100:.1f}%" + (" (Capped at 100%)" if raw_ratio > 1 else "")
 
             scenarios[scenario_name] = {
                 'monthly_contribution': scenario_monthly,
                 'projected_total': scenario_total,
                 'monthly_retirement_income': monthly_retirement_income,
-                'replacement_ratio_achieved': replacement_ratio_achieved
+                'replacement_ratio_achieved': replacement_ratio_achieved,
+                'display_ratio': display_ratio
             }
 
         return {
@@ -2149,9 +2155,9 @@ class FinancialFlows:
                     'Monthly Retirement Income': [f"${scenarios['conservative']['monthly_retirement_income']:,.0f}",
                                                 f"${scenarios['current']['monthly_retirement_income']:,.0f}",
                                                 f"${scenarios['aggressive']['monthly_retirement_income']:,.0f}"],
-                    'Income Replacement': [f"{scenarios['conservative']['replacement_ratio_achieved']:.1%}",
-                                         f"{scenarios['current']['replacement_ratio_achieved']:.1%}",
-                                         f"{scenarios['aggressive']['replacement_ratio_achieved']:.1%}"]
+                    'Income Replacement': [scenarios['conservative'].get('display_ratio', f"{scenarios['conservative']['replacement_ratio_achieved']:.1%}"),
+                                         scenarios['current'].get('display_ratio', f"{scenarios['current']['replacement_ratio_achieved']:.1%}"),
+                                         scenarios['aggressive'].get('display_ratio', f"{scenarios['aggressive']['replacement_ratio_achieved']:.1%}")]
                 })
 
                 st.dataframe(scenario_df, use_container_width=True)
