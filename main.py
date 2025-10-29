@@ -946,7 +946,7 @@ class FinancialCalculator:
             else:
                 monthly_retirement_income = scenario_total / (retirement_years * 12)
 
-            replacement_ratio_achieved = (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0
+            replacement_ratio_achieved = min(1, (monthly_retirement_income * 12) / future_income_needed if future_income_needed > 0 else 0)
 
             scenarios[scenario_name] = {
                 'monthly_contribution': scenario_monthly,
@@ -1100,11 +1100,13 @@ class FinancialVisualizer:
                 row=2, col=1
             )
 
+        ai_score = budget_data.get("ai_score", budget_data.get("health_score", 0))
+        health_label = budget_data.get("financial_health", "N/A")
         fig.add_trace(
             go.Indicator(
                 mode="gauge+number",
-                value=budget_data['health_score'],
-                title={'text': f"<b>Health Score: {budget_data['financial_health']}</b>", 'font': {'size': 18, 'color': 'white'}},
+                value=ai_score,
+                title={'text': f"<b>AI Financial Health Score: {health_label}</b>", 'font': {'size': 18, 'color': 'white'}},
                 number={'font': {'size': 36, 'color': 'white'}},
                 gauge={
                     'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
@@ -1583,6 +1585,10 @@ class FinancialFlows:
             budget_summary = FinancialCalculator.calculate_budget_summary(form_data['total_income'], form_data['expenses'])
 
             ai_insights = generate_ai_insights(budget_summary, "Budget Analysis")
+            budget_summary["ai_score"] = ai_insights.get("ai_score")
+
+            if not budget_summary["recommendations"]:
+                budget_summary["recommendations"] = ["No personalized recommendations available."]
 
             if not TEST_MODE:
                 col1, col2, col3, col4 = st.columns(4)
@@ -1622,9 +1628,10 @@ class FinancialFlows:
                         ), unsafe_allow_html=True)
 
                 recommendations_html = "".join([f"<li>{rec}</li>" for rec in budget_summary["recommendations"]])
+                ai_display_score = budget_summary.get("ai_score", budget_summary["health_score"])
                 st.markdown(f'''
                 <div class="summary-card">
-                    <h3>Financial Health: {budget_summary["financial_health"]} (Score: {budget_summary["health_score"]}/100)</h3>
+                    <h3>Financial Health: {budget_summary["financial_health"]} (Score: {ai_display_score}/100)</h3>
                     <h4>Personalized Recommendations:</h4>
                     <ul>
                         {recommendations_html}
