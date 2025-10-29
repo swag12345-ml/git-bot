@@ -890,28 +890,20 @@ class FinancialCalculator:
 
         inflation_rate = 0.03
         investment_return = 0.07
+        replacement_ratio = 0.80
         life_expectancy = 85
         retirement_years = max(1, life_expectancy - retirement_age)
-
-        # ✅ 3️⃣ Integrate lifestyle factor - default to Comfortable (80%)
-        # This would be passed from the form, but we default to 0.8 here
-        replacement_ratio = 0.80
 
         future_income_needed = current_income * ((1 + inflation_rate) ** years_to_retirement)
         annual_retirement_need = future_income_needed * replacement_ratio
 
-        # ✅ 4️⃣ Include additional income - would be passed from form, defaulting to 0
-        additional_income = 0  # This would come from other_retirement_income parameter
-        effective_annual_need = annual_retirement_need - additional_income
-
-        # ✅ 5️⃣ Handle negative real returns
         real_return = investment_return - inflation_rate
-        if real_return <= 0:
-            real_return = 0.0001
-
-        retirement_corpus_needed = effective_annual_need * (
-            (1 - (1 + real_return) ** -retirement_years) / real_return
-        )
+        if real_return > 0:
+            retirement_corpus_needed = annual_retirement_need * (
+                (1 - (1 + real_return) ** -retirement_years) / real_return
+            )
+        else:
+            retirement_corpus_needed = annual_retirement_need * retirement_years
 
         future_current_savings = current_savings * ((1 + investment_return) ** years_to_retirement)
 
@@ -990,16 +982,12 @@ class FinancialCalculator:
         """Generate retirement planning recommendations."""
         recommendations = []
 
-        # ✅ 1️⃣ Fix contribution logic error
         if gap > 0:
-            difference = current_contrib - required_contrib
-            if difference < 0:
-                increase_needed = abs(difference)
+            increase_needed = max(0, required_contrib - current_contrib)
+            if increase_needed > 0:
                 recommendations.append(f"💰 Increase monthly contributions by ${increase_needed:.0f}")
-            elif difference == 0:
-                recommendations.append("🎉 Your current monthly contribution meets the required amount.")
             else:
-                recommendations.append("🎉 Your current monthly contribution exceeds the required amount, keeping you on track for retirement.")
+                recommendations.append("🎉 You are already on track, no increase needed")
         else:
             recommendations.append("🎉 You are already on track, no increase needed")
 
@@ -1398,16 +1386,6 @@ class FinancialVisualizer:
         )
 
         current_replacement = scenarios.get('current', {}).get('replacement_ratio_achieved', 0) * 100
-
-        # ✅ 8️⃣ Adjust income replacement gauge colors
-        readiness_ratio = scenarios.get('current', {}).get('replacement_ratio_achieved', 0)
-        if readiness_ratio < 0.6:
-            bar_color = 'red'
-        elif readiness_ratio < 0.85:
-            bar_color = 'yellow'
-        else:
-            bar_color = 'green'
-
         fig.add_trace(
             go.Indicator(
                 mode="gauge+number",
@@ -1416,11 +1394,11 @@ class FinancialVisualizer:
                 number={'font': {'size': 36, 'color': 'white'}},
                 gauge={
                     'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
-                    'bar': {'color': bar_color, 'thickness': 0.3},
+                    'bar': {'color': 'darkblue', 'thickness': 0.3},
                     'steps': [
-                        {'range': [0, 60], 'color': '#d1d5db'},
-                        {'range': [60, 85], 'color': '#9ca3af'},
-                        {'range': [85, 100], 'color': '#4ade80'}
+                        {'range': [0, 50], 'color': '#d1d5db'},
+                        {'range': [50, 80], 'color': '#9ca3af'},
+                        {'range': [80, 100], 'color': '#4ade80'}
                     ],
                     'threshold': {
                         'line': {'color': 'red', 'width': 4},
@@ -2129,34 +2107,7 @@ class FinancialFlows:
                     st.warning("Please adjust your retirement age to be greater than your current age.")
                 return retirement_analysis
 
-            # ✅ 6️⃣ Improve AI score logic
-            retirement_gap = retirement_analysis['retirement_gap']
-            retirement_corpus_needed = retirement_analysis['retirement_corpus_needed']
-            projected_savings = retirement_analysis['projected_savings']
-            required_contribution = retirement_analysis['required_monthly_contribution']
-            years_to_retirement = retirement_analysis['years_to_retirement']
-
-            readiness_ratio = projected_savings / retirement_corpus_needed if retirement_corpus_needed > 0 else 1.0
-            contribution_efficiency = min(1, total_monthly_contribution / required_contribution) if required_contribution > 0 else 1.0
-            time_factor = max(0, 1 - (years_to_retirement / 50))
-
-            calculated_ai_score = (readiness_ratio * 70) + (contribution_efficiency * 20) + (time_factor * 10)
-            calculated_ai_score = round(min(calculated_ai_score, 100), 2)
-
-            # Add calculated score to retirement_analysis for AI to use
-            retirement_analysis['calculated_ai_score'] = calculated_ai_score
-
             ai_insights = generate_ai_insights(retirement_analysis, "Retirement Analysis")
-
-            # ✅ 7️⃣ Improve AI insights when user is on track
-            if retirement_gap <= 0:
-                ai_insights["analysis"] = "You are fully on track for retirement — your projected savings meet or exceed your target. Excellent job maintaining consistent contributions and a strong investment plan."
-                if "ai_reasoning" in ai_insights:
-                    ai_insights["ai_reasoning"] = "You are fully on track for retirement — your projected savings meet or exceed your target. Excellent job maintaining consistent contributions and a strong investment plan."
-
-            # Use calculated score if AI didn't provide one
-            if ai_insights.get("ai_score") is None:
-                ai_insights["ai_score"] = calculated_ai_score
 
             if not TEST_MODE:
                 col1, col2, col3, col4, col5 = st.columns(5)
@@ -2227,18 +2178,12 @@ class FinancialFlows:
                 required_contrib = retirement_analysis["required_monthly_contribution"]
                 current_contrib = total_monthly_contribution
 
-                # ✅ 1️⃣ Fix contribution logic in messages
                 if gap > 0:
-                    difference = current_contrib - required_contrib
-                    if difference < 0:
-                        sufficiency_msg = f"The current monthly contribution of ${current_contrib:,.2f} is not sufficient to meet the required monthly contribution of ${required_contrib:,.2f} to bridge the gap."
-                        st.warning(f"⚠️ {sufficiency_msg}")
-                    elif difference == 0:
-                        sufficiency_msg = f"The current monthly contribution of ${current_contrib:,.2f} meets the required amount of ${required_contrib:,.2f}."
-                        st.success(f"✅ {sufficiency_msg}")
+                    increase_needed = max(0, required_contrib - current_contrib)
+                    if increase_needed > 0:
+                        st.warning(f"⚠️ To meet your retirement goal, consider increasing your monthly contribution by ${increase_needed:.0f}")
                     else:
-                        sufficiency_msg = f"The current monthly contribution of ${current_contrib:,.2f} exceeds the required amount of ${required_contrib:,.2f}, keeping you on track for retirement."
-                        st.success(f"🎉 {sufficiency_msg}")
+                        st.success("🎉 You are already on track, no increase needed")
                 else:
                     st.success("🎉 Congratulations! You're on track to meet your retirement goals!")
 
