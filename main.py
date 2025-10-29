@@ -359,7 +359,7 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
             Investment Data (JSON): {json.dumps(data, default=str)}
 
             Tasks:
-            1. Provide an Investment Score (0-100) where 0 is poor and 100 is excellent
+            1. Provide an Investment Risk Score (0-100)
             2. Give a brief 2-3 sentence explanation
             3. Provide 3-5 specific portfolio improvement suggestions
 
@@ -373,7 +373,7 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
             Debt Data (JSON): {json.dumps(data, default=str)}
 
             Tasks:
-            1. Provide a Debt Health Score (0-100) where 0 is critical and 100 is excellent
+            1. Provide a Debt Health Score (0-100)
             2. Give a brief 2-3 sentence assessment
             3. Provide 3-5 prioritized actionable steps
 
@@ -387,7 +387,7 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
             Retirement Data (JSON): {json.dumps(data, default=str)}
 
             Tasks:
-            1. Provide a Retirement Readiness Score (0-100) where 0 is not ready and 100 is fully ready
+            1. Provide a Retirement Readiness Index (0-100)
             2. Give a brief 2-3 sentence assessment
             3. Provide 3-5 specific actions to improve readiness
 
@@ -504,7 +504,7 @@ class FinancialCalculator:
 
     @staticmethod
     def calculate_budget_summary(income: float, expenses: Dict[str, float]) -> Dict[str, Any]:
-        """Calculate comprehensive budget summary."""
+        """Calculate comprehensive budget summary with dynamic scores."""
         if income <= 0:
             return {
                 'total_income': 0,
@@ -514,6 +514,9 @@ class FinancialCalculator:
                 'essential_expenses': 0,
                 'discretionary_expenses': 0,
                 'expense_breakdown': {},
+                'financial_health': 'Critical',
+                'health_color': '#f44336',
+                'health_score': 0,
                 'recommendations': ['Please enter valid income and expense data.']
             }
 
@@ -525,7 +528,73 @@ class FinancialCalculator:
         essential_expenses = sum(expenses.get(cat, 0) for cat in essential_categories if cat in expenses)
         discretionary_expenses = total_expenses - essential_expenses
 
+        health_score = 0
+
+        if savings_rate >= 20:
+            health_score += 50
+        elif savings_rate >= 10:
+            health_score += 35
+        elif savings_rate >= 5:
+            health_score += 20
+        elif savings_rate >= 0:
+            health_score += 10
+
+        housing_ratio = expenses.get('housing', 0) / income * 100 if income > 0 else 0
+        if housing_ratio <= 25:
+            health_score += 25
+        elif housing_ratio <= 30:
+            health_score += 20
+        elif housing_ratio <= 35:
+            health_score += 10
+
+        debt_ratio = expenses.get('debt_payments', 0) / income * 100 if income > 0 else 0
+        if debt_ratio <= 10:
+            health_score += 15
+        elif debt_ratio <= 20:
+            health_score += 10
+        elif debt_ratio <= 30:
+            health_score += 5
+
+        if savings > 0:
+            health_score += 10
+
+        health_score = min(100, health_score)
+
+        if health_score >= 80:
+            health_status = "Excellent"
+            health_color = "#4caf50"
+        elif health_score >= 65:
+            health_status = "Good"
+            health_color = "#8bc34a"
+        elif health_score >= 45:
+            health_status = "Fair"
+            health_color = "#ff9800"
+        elif health_score >= 25:
+            health_status = "Poor"
+            health_color = "#ff5722"
+        else:
+            health_status = "Critical"
+            health_color = "#f44336"
+
+        return {
+            'total_income': income,
+            'total_expenses': total_expenses,
+            'savings': savings,
+            'savings_rate': savings_rate,
+            'essential_expenses': essential_expenses,
+            'discretionary_expenses': discretionary_expenses,
+            'expense_breakdown': expenses,
+            'financial_health': health_status,
+            'health_color': health_color,
+            'health_score': health_score,
+            'recommendations': FinancialCalculator._get_budget_recommendations(savings_rate, expenses, income)
+        }
+
+    @staticmethod
+    def _get_budget_recommendations(savings_rate: float, expenses: Dict[str, float], income: float) -> List[str]:
+        """Generate personalized budget recommendations."""
         recommendations = []
+
         if savings_rate < 10:
             recommendations.append("🎯 Aim to save at least 10% of your income")
 
@@ -542,16 +611,7 @@ class FinancialCalculator:
         if expenses.get('debt_payments', 0) / income > 0.2:
             recommendations.append("💳 Focus on debt repayment - debt payments are high relative to income")
 
-        return {
-            'total_income': income,
-            'total_expenses': total_expenses,
-            'savings': savings,
-            'savings_rate': savings_rate,
-            'essential_expenses': essential_expenses,
-            'discretionary_expenses': discretionary_expenses,
-            'expense_breakdown': expenses,
-            'recommendations': recommendations
-        }
+        return recommendations
 
     @staticmethod
     def calculate_investment_allocation(risk_profile: str, time_horizon: int, capital: float, age: int = 35) -> Dict[str, Any]:
@@ -610,6 +670,7 @@ class FinancialCalculator:
         )
 
         projections = {}
+        # Dynamic projection intervals including user's chosen horizon
         projection_years = sorted(set(
             [5, 10, 15, 20, 25, 30, int(time_horizon)] if time_horizon > 0 else [5, 10, 20, 30]
         ))
@@ -629,17 +690,20 @@ class FinancialCalculator:
                 'optimistic': optimistic
             }
 
-        volatilities = {'stocks': 0.16, 'bonds': 0.05, 'cash': 0.01}
-        volatility_estimate = sum((allocation[asset] / 100) * volatilities[asset] for asset in allocation)
-
         return {
             'allocation_percentages': allocation,
             'allocation_dollars': dollar_allocation,
             'expected_annual_return': portfolio_return,
             'projections': projections,
             'risk_level': risk_profile,
-            'volatility_estimate': volatility_estimate
+            'volatility_estimate': FinancialCalculator._calculate_portfolio_volatility(allocation)
         }
+
+    @staticmethod
+    def _calculate_portfolio_volatility(allocation: Dict[str, int]) -> float:
+        """Calculate estimated portfolio volatility."""
+        volatilities = {'stocks': 0.16, 'bonds': 0.05, 'cash': 0.01}
+        return sum((allocation[asset] / 100) * volatilities[asset] for asset in allocation)
 
     @staticmethod
     def calculate_debt_payoff(debts: List[Dict], extra_payment: float = 0, strategy: str = 'avalanche') -> Dict[str, Any]:
@@ -686,11 +750,13 @@ class FinancialCalculator:
         def simulate(extra_amt: float):
             debts_sim = [d.copy() for d in valid_debts]
 
+            # Sort debts based on strategy at the beginning
             if strategy == 'avalanche':
                 debts_sim.sort(key=lambda x: x['interest_rate'], reverse=True)
             else:
                 debts_sim.sort(key=lambda x: x['balance'])
 
+            # Track per-debt metrics
             debt_stats = {i: {'months': 0, 'interest': 0.0, 'name': debts_sim[i]['name'],
                               'balance': debts_sim[i]['balance'], 'rate': debts_sim[i]['interest_rate'],
                               'min_pay': debts_sim[i]['minimum_payment']}
@@ -701,6 +767,7 @@ class FinancialCalculator:
             current_extra = extra_amt
 
             while any(d['balance'] > 0.01 for d in debts_sim):
+                # Find first unpaid debt (priority debt)
                 priority_debt_idx = None
                 for i, d in enumerate(debts_sim):
                     if d['balance'] > 0.01:
@@ -727,6 +794,7 @@ class FinancialCalculator:
                     if d['balance'] > 0.01:
                         debt_stats[i]['months'] = months + 1
 
+                    # Once a debt is paid, roll over its payment to extra
                     if d['balance'] <= 0.01 and debt_stats[i]['months'] == months + 1:
                         current_extra += d['minimum_payment']
 
@@ -734,6 +802,7 @@ class FinancialCalculator:
                 if months > 1000:
                     break
 
+            # Build payoff plan from debt_stats
             payoff_plan = []
             for i in range(len(debts_sim)):
                 stat = debt_stats[i]
@@ -749,6 +818,7 @@ class FinancialCalculator:
 
             return {'months': months, 'interest': total_interest, 'payoff_plan': payoff_plan}
 
+        # Run both cases: minimum payments only vs. with extra payment
         base = simulate(0)
         with_extra = simulate(extra_payment)
 
@@ -885,27 +955,6 @@ class FinancialCalculator:
                 'replacement_ratio_achieved': replacement_ratio_achieved
             }
 
-        recommendations = []
-        if retirement_gap > 0:
-            increase_needed = max(0, required_monthly_contribution - monthly_contribution)
-            if increase_needed > 0:
-                recommendations.append(f"💰 Increase monthly contributions by ${increase_needed:.0f}")
-            else:
-                recommendations.append("🎉 You are already on track, no increase needed")
-        else:
-            recommendations.append("🎉 You are already on track, no increase needed")
-
-        if years_to_retirement > 30:
-            recommendations.append("📈 Consider more aggressive investments for long-term growth")
-        elif years_to_retirement < 10:
-            recommendations.append("🛡️ Consider shifting to more conservative investments")
-
-        if monthly_contribution < 500:
-            recommendations.append("🎯 Aim to contribute at least $500/month for retirement")
-
-        recommendations.append("🏢 Maximize employer 401(k) matching if available")
-        recommendations.append("💡 Consider Roth IRA for tax-free retirement income")
-
         return {
             'current_age': current_age,
             'retirement_age': retirement_age,
@@ -917,8 +966,37 @@ class FinancialCalculator:
             'retirement_gap': retirement_gap,
             'required_monthly_contribution': required_monthly_contribution,
             'scenarios': scenarios,
-            'recommendations': recommendations
+            'recommendations': FinancialCalculator._get_retirement_recommendations(
+                retirement_gap, years_to_retirement, monthly_contribution, required_monthly_contribution
+            )
         }
+
+    @staticmethod
+    def _get_retirement_recommendations(gap: float, years_left: int, current_contrib: float, required_contrib: float) -> List[str]:
+        """Generate retirement planning recommendations."""
+        recommendations = []
+
+        if gap > 0:
+            increase_needed = max(0, required_contrib - current_contrib)
+            if increase_needed > 0:
+                recommendations.append(f"💰 Increase monthly contributions by ${increase_needed:.0f}")
+            else:
+                recommendations.append("🎉 You are already on track, no increase needed")
+        else:
+            recommendations.append("🎉 You are already on track, no increase needed")
+
+        if years_left > 30:
+            recommendations.append("📈 Consider more aggressive investments for long-term growth")
+        elif years_left < 10:
+            recommendations.append("🛡️ Consider shifting to more conservative investments")
+
+        if current_contrib < 500:
+            recommendations.append("🎯 Aim to contribute at least $500/month for retirement")
+
+        recommendations.append("🏢 Maximize employer 401(k) matching if available")
+        recommendations.append("💡 Consider Roth IRA for tax-free retirement income")
+
+        return recommendations
 
 class FinancialVisualizer:
     """Advanced visualization functions for financial data"""
@@ -966,11 +1044,11 @@ class FinancialVisualizer:
         return fig
 
     @staticmethod
-    def plot_budget_summary(budget_data: Dict[str, Any], ai_score: float = None) -> go.Figure:
+    def plot_budget_summary(budget_data: Dict[str, Any]) -> go.Figure:
         """Create a comprehensive budget visualization."""
         fig = make_subplots(
             rows=2, cols=2,
-            subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'AI Financial Health Score'),
+            subplot_titles=('Income vs Expenses', 'Savings Rate', 'Expense Categories', 'Financial Health Score'),
             specs=[[{"type": "bar"}, {"type": "indicator"}],
                    [{"type": "pie"}, {"type": "indicator"}]],
             vertical_spacing=0.25,
@@ -1022,38 +1100,29 @@ class FinancialVisualizer:
                 row=2, col=1
             )
 
-        # Use AI score if available, otherwise show message
-        if ai_score is not None:
-            fig.add_trace(
-                go.Indicator(
-                    mode="gauge+number",
-                    value=ai_score,
-                    title={'text': "<b>AI Financial Health Score</b>", 'font': {'size': 18, 'color': 'white'}},
-                    number={'font': {'size': 36, 'color': 'white'}},
-                    gauge={
-                        'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
-                        'bar': {'color': 'darkblue', 'thickness': 0.3},
-                        'steps': [
-                            {'range': [0, 50], 'color': '#d1d5db'},
-                            {'range': [50, 80], 'color': '#9ca3af'},
-                            {'range': [80, 100], 'color': '#4ade80'}
-                        ],
-                        'threshold': {
-                            'line': {'color': 'red', 'width': 4},
-                            'thickness': 0.75,
-                            'value': 80
-                        }
+        fig.add_trace(
+            go.Indicator(
+                mode="gauge+number",
+                value=budget_data['health_score'],
+                title={'text': f"<b>Health Score: {budget_data['financial_health']}</b>", 'font': {'size': 18, 'color': 'white'}},
+                number={'font': {'size': 36, 'color': 'white'}},
+                gauge={
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
+                    'bar': {'color': 'darkblue', 'thickness': 0.3},
+                    'steps': [
+                        {'range': [0, 50], 'color': '#d1d5db'},
+                        {'range': [50, 80], 'color': '#9ca3af'},
+                        {'range': [80, 100], 'color': '#4ade80'}
+                    ],
+                    'threshold': {
+                        'line': {'color': 'red', 'width': 4},
+                        'thickness': 0.75,
+                        'value': 80
                     }
-                ),
-                row=2, col=2
-            )
-        else:
-            fig.add_annotation(
-                text="AI Score Not Available",
-                x=0.825, y=0.25, xref='paper', yref='paper',
-                showarrow=False,
-                font=dict(size=16, color='white')
-            )
+                }
+            ),
+            row=2, col=2
+        )
 
         fig.update_layout(
             height=950,
@@ -1068,6 +1137,7 @@ class FinancialVisualizer:
             margin=dict(t=100, b=60, l=60, r=60)
         )
 
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
@@ -1076,13 +1146,13 @@ class FinancialVisualizer:
         return fig
 
     @staticmethod
-    def plot_investment_allocation(allocation_data: Dict[str, Any], ai_score: float = None) -> go.Figure:
+    def plot_investment_allocation(allocation_data: Dict[str, Any]) -> go.Figure:
         """Create investment allocation visualization."""
         fig = make_subplots(
             rows=2, cols=2,
-            subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'AI Investment Score'),
+            subplot_titles=('Asset Allocation', 'Portfolio Projections', 'Risk vs Return', 'Dollar Allocation'),
             specs=[[{"type": "pie"}, {"type": "scatter"}],
-                   [{"type": "scatter"}, {"type": "indicator"}]],
+                   [{"type": "scatter"}, {"type": "bar"}]],
             vertical_spacing=0.25,
             horizontal_spacing=0.12
         )
@@ -1136,38 +1206,16 @@ class FinancialVisualizer:
                 row=2, col=1
             )
 
-        # Use AI score if available
-        if ai_score is not None:
-            fig.add_trace(
-                go.Indicator(
-                    mode="gauge+number",
-                    value=ai_score,
-                    title={'text': "<b>AI Investment Score</b>", 'font': {'size': 18, 'color': 'white'}},
-                    number={'font': {'size': 36, 'color': 'white'}},
-                    gauge={
-                        'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
-                        'bar': {'color': 'darkblue', 'thickness': 0.3},
-                        'steps': [
-                            {'range': [0, 50], 'color': '#d1d5db'},
-                            {'range': [50, 80], 'color': '#9ca3af'},
-                            {'range': [80, 100], 'color': '#4ade80'}
-                        ],
-                        'threshold': {
-                            'line': {'color': 'red', 'width': 4},
-                            'thickness': 0.75,
-                            'value': 80
-                        }
-                    }
-                ),
-                row=2, col=2
-            )
-        else:
-            fig.add_annotation(
-                text="AI Score Not Available",
-                x=0.825, y=0.25, xref='paper', yref='paper',
-                showarrow=False,
-                font=dict(size=16, color='white')
-            )
+        dollar_allocation = allocation_data['allocation_dollars']
+        fig.add_trace(
+            go.Bar(
+                x=list(dollar_allocation.keys()),
+                y=list(dollar_allocation.values()),
+                marker_color=['#1f77b4', '#ff7f0e', '#2ca02c'],
+                name='Dollar Amount'
+            ),
+            row=2, col=2
+        )
 
         fig.update_layout(
             height=950,
@@ -1182,6 +1230,7 @@ class FinancialVisualizer:
             margin=dict(t=100, b=60, l=60, r=60)
         )
 
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
@@ -1190,7 +1239,7 @@ class FinancialVisualizer:
         return fig
 
     @staticmethod
-    def plot_debt_payoff(debt_data: Dict[str, Any], ai_score: float = None) -> go.Figure:
+    def plot_debt_payoff(debt_data: Dict[str, Any]) -> go.Figure:
         """Create debt payoff visualization."""
         scenarios = debt_data.get('scenarios', {})
 
@@ -1209,9 +1258,9 @@ class FinancialVisualizer:
 
         fig = make_subplots(
             rows=2, cols=2,
-            subplot_titles=('Debt Balances', 'Payoff Timeline', 'Interest Rates', 'AI Debt Score'),
+            subplot_titles=('Debt Balances', 'Payoff Timeline', 'Interest Rates', 'Monthly Payments'),
             specs=[[{"type": "bar"}, {"type": "bar"}],
-                   [{"type": "bar"}, {"type": "indicator"}]],
+                   [{"type": "bar"}, {"type": "bar"}]],
             vertical_spacing=0.25,
             horizontal_spacing=0.12
         )
@@ -1223,6 +1272,7 @@ class FinancialVisualizer:
             balances = [debt['balance'] for debt in debts]
             months = [debt['months_to_payoff'] for debt in debts]
             interest_rates = [debt['interest_rate'] for debt in debts]
+            payments = [debt['monthly_payment'] for debt in debts]
 
             fig.add_trace(
                 go.Bar(x=debt_names, y=balances, name='Balance', marker_color='red'),
@@ -1239,37 +1289,9 @@ class FinancialVisualizer:
                 row=2, col=1
             )
 
-        # Use AI score if available
-        if ai_score is not None:
             fig.add_trace(
-                go.Indicator(
-                    mode="gauge+number",
-                    value=ai_score,
-                    title={'text': "<b>AI Debt Score</b>", 'font': {'size': 18, 'color': 'white'}},
-                    number={'font': {'size': 36, 'color': 'white'}},
-                    gauge={
-                        'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
-                        'bar': {'color': 'darkblue', 'thickness': 0.3},
-                        'steps': [
-                            {'range': [0, 50], 'color': '#d1d5db'},
-                            {'range': [50, 80], 'color': '#9ca3af'},
-                            {'range': [80, 100], 'color': '#4ade80'}
-                        ],
-                        'threshold': {
-                            'line': {'color': 'red', 'width': 4},
-                            'thickness': 0.75,
-                            'value': 80
-                        }
-                    }
-                ),
+                go.Bar(x=debt_names, y=payments, name='Monthly Payment', marker_color='green'),
                 row=2, col=2
-            )
-        else:
-            fig.add_annotation(
-                text="AI Score Not Available",
-                x=0.825, y=0.25, xref='paper', yref='paper',
-                showarrow=False,
-                font=dict(size=16, color='white')
             )
 
         fig.update_layout(
@@ -1285,6 +1307,7 @@ class FinancialVisualizer:
             margin=dict(t=100, b=60, l=60, r=60)
         )
 
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
@@ -1293,11 +1316,11 @@ class FinancialVisualizer:
         return fig
 
     @staticmethod
-    def plot_retirement_projections(retirement_data: Dict[str, Any], ai_score: float = None) -> go.Figure:
+    def plot_retirement_projections(retirement_data: Dict[str, Any]) -> go.Figure:
         """Create retirement planning visualization."""
         fig = make_subplots(
             rows=2, cols=2,
-            subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'AI Retirement Readiness Score'),
+            subplot_titles=('Retirement Scenarios', 'Contribution Impact', 'Savings Growth', 'Income Replacement'),
             specs=[[{"type": "bar"}, {"type": "scatter"}],
                    [{"type": "scatter"}, {"type": "indicator"}]],
             vertical_spacing=0.25,
@@ -1354,38 +1377,30 @@ class FinancialVisualizer:
             row=2, col=1
         )
 
-        # Use AI score if available
-        if ai_score is not None:
-            fig.add_trace(
-                go.Indicator(
-                    mode="gauge+number",
-                    value=ai_score,
-                    title={'text': "<b>AI Retirement Readiness Score</b>", 'font': {'size': 18, 'color': 'white'}},
-                    number={'font': {'size': 36, 'color': 'white'}},
-                    gauge={
-                        'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
-                        'bar': {'color': 'darkblue', 'thickness': 0.3},
-                        'steps': [
-                            {'range': [0, 50], 'color': '#d1d5db'},
-                            {'range': [50, 80], 'color': '#9ca3af'},
-                            {'range': [80, 100], 'color': '#4ade80'}
-                        ],
-                        'threshold': {
-                            'line': {'color': 'red', 'width': 4},
-                            'thickness': 0.75,
-                            'value': 80
-                        }
+        current_replacement = scenarios.get('current', {}).get('replacement_ratio_achieved', 0) * 100
+        fig.add_trace(
+            go.Indicator(
+                mode="gauge+number",
+                value=current_replacement,
+                title={'text': "<b>Income Replacement (%)</b>", 'font': {'size': 18, 'color': 'white'}},
+                number={'font': {'size': 36, 'color': 'white'}},
+                gauge={
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': 'white'},
+                    'bar': {'color': 'darkblue', 'thickness': 0.3},
+                    'steps': [
+                        {'range': [0, 50], 'color': '#d1d5db'},
+                        {'range': [50, 80], 'color': '#9ca3af'},
+                        {'range': [80, 100], 'color': '#4ade80'}
+                    ],
+                    'threshold': {
+                        'line': {'color': 'red', 'width': 4},
+                        'thickness': 0.75,
+                        'value': 80
                     }
-                ),
-                row=2, col=2
-            )
-        else:
-            fig.add_annotation(
-                text="AI Score Not Available",
-                x=0.825, y=0.25, xref='paper', yref='paper',
-                showarrow=False,
-                font=dict(size=16, color='white')
-            )
+                }
+            ),
+            row=2, col=2
+        )
 
         fig.update_layout(
             height=950,
@@ -1400,6 +1415,7 @@ class FinancialVisualizer:
             margin=dict(t=100, b=60, l=60, r=60)
         )
 
+        # Adjust subplot annotations positioning
         if fig.layout.annotations:
             for i, ann in enumerate(fig.layout.annotations):
                 ann.font.size = 14
@@ -1444,9 +1460,9 @@ class FinancialFlows:
             with col3:
                 st.markdown(display_metric_card("Monthly Savings", f"${demo_budget['savings']:,.2f}", color='green'), unsafe_allow_html=True)
             with col4:
-                st.markdown(display_metric_card("Savings Rate", f"{demo_budget['savings_rate']:.1f}%"), unsafe_allow_html=True)
+                st.markdown(display_metric_card("Health Score", f"{demo_budget['health_score']}/100", color=demo_budget['health_color']), unsafe_allow_html=True)
 
-            budget_viz = FinancialVisualizer.plot_budget_summary(demo_budget, ai_score=85)
+            budget_viz = FinancialVisualizer.plot_budget_summary(demo_budget)
             st.plotly_chart(budget_viz, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
@@ -1465,7 +1481,7 @@ class FinancialFlows:
             with col4:
                 st.markdown(display_metric_card("Expected Return", f"{demo_investment['expected_annual_return']:.1%}"), unsafe_allow_html=True)
 
-            investment_viz = FinancialVisualizer.plot_investment_allocation(demo_investment, ai_score=78)
+            investment_viz = FinancialVisualizer.plot_investment_allocation(demo_investment)
             st.plotly_chart(investment_viz, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
@@ -1486,7 +1502,7 @@ class FinancialFlows:
                 gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
                 st.markdown(display_metric_card("Retirement Gap", gap_text, color=gap_color), unsafe_allow_html=True)
 
-            retirement_viz = FinancialVisualizer.plot_retirement_projections(demo_retirement, ai_score=72)
+            retirement_viz = FinancialVisualizer.plot_retirement_projections(demo_retirement)
             st.plotly_chart(retirement_viz, use_container_width=True, config={"displayModeBar": False})
 
     @staticmethod
@@ -1498,6 +1514,7 @@ class FinancialFlows:
         if 'budget_form_data' not in st.session_state:
             st.session_state.budget_form_data = {}
 
+        # Reset form functionality
         if not TEST_MODE:
             if st.button("🔄 Reset Form"):
                 for key in list(st.session_state.keys()):
@@ -1594,19 +1611,21 @@ class FinancialFlows:
                     ai_score = ai_insights.get("ai_score")
                     if ai_score is not None:
                         st.markdown(display_metric_card(
-                            "AI Financial Health Score",
+                            "AI Score",
                             f"{ai_score}/100"
                         ), unsafe_allow_html=True)
                     else:
                         st.markdown(display_metric_card(
-                            "Savings Rate",
-                            f"{budget_summary['savings_rate']:.1f}%"
+                            "Health Score",
+                            f"{budget_summary['health_score']}/100",
+                            color=budget_summary["health_color"]
                         ), unsafe_allow_html=True)
 
                 recommendations_html = "".join([f"<li>{rec}</li>" for rec in budget_summary["recommendations"]])
                 st.markdown(f'''
                 <div class="summary-card">
-                    <h3>Budget Recommendations</h3>
+                    <h3>Financial Health: {budget_summary["financial_health"]} (Score: {budget_summary["health_score"]}/100)</h3>
+                    <h4>Personalized Recommendations:</h4>
                     <ul>
                         {recommendations_html}
                     </ul>
@@ -1617,7 +1636,7 @@ class FinancialFlows:
 
                 st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Budget Analysis Dashboard")
-                budget_viz = FinancialVisualizer.plot_budget_summary(budget_summary, ai_score=ai_insights.get("ai_score"))
+                budget_viz = FinancialVisualizer.plot_budget_summary(budget_summary)
                 st.plotly_chart(budget_viz, use_container_width=True, config={"displayModeBar": False})
 
                 st.session_state.budget_data = budget_summary
@@ -1634,6 +1653,7 @@ class FinancialFlows:
         if 'investment_form_data' not in st.session_state:
             st.session_state.investment_form_data = {}
 
+        # Reset form functionality
         if not TEST_MODE:
             if st.button("🔄 Reset Form", key="reset_investment"):
                 for key in list(st.session_state.keys()):
@@ -1767,7 +1787,7 @@ class FinancialFlows:
                     ai_score = ai_insights.get("ai_score")
                     if ai_score is not None:
                         st.markdown(display_metric_card(
-                            "AI Investment Score",
+                            "AI Risk Score",
                             f"{ai_score}/100"
                         ), unsafe_allow_html=True)
                     else:
@@ -1776,9 +1796,12 @@ class FinancialFlows:
                             f"{allocation_data['expected_annual_return']:.1%}"
                         ), unsafe_allow_html=True)
 
+                ai_score = ai_insights.get("ai_score")
+                ai_score_text = f" | AI Score: {ai_score}/100" if ai_score is not None else ""
+
                 st.markdown(f'''
                 <div class="summary-card">
-                    <h3>Portfolio Metrics</h3>
+                    <h3>Portfolio Metrics{ai_score_text}</h3>
                     <p><strong>Expected Annual Return:</strong> {allocation_data["expected_annual_return"]:.1%}</p>
                     <p><strong>Estimated Volatility:</strong> {allocation_data["volatility_estimate"]:.1%}</p>
                     <p><strong>Risk Level:</strong> {allocation_data["risk_level"]}</p>
@@ -1795,7 +1818,7 @@ class FinancialFlows:
 
                 st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Investment Portfolio Analysis")
-                investment_viz = FinancialVisualizer.plot_investment_allocation(allocation_data, ai_score=ai_insights.get("ai_score"))
+                investment_viz = FinancialVisualizer.plot_investment_allocation(allocation_data)
                 st.plotly_chart(investment_viz, use_container_width=True, config={"displayModeBar": False})
 
                 st.session_state.investment_data = allocation_data
@@ -1812,6 +1835,7 @@ class FinancialFlows:
         if 'debts' not in st.session_state:
             st.session_state.debts = []
 
+        # Reset form functionality
         if not TEST_MODE:
             if st.button("🔄 Reset Form", key="reset_debt"):
                 for key in list(st.session_state.keys()):
@@ -1932,7 +1956,7 @@ class FinancialFlows:
                         ai_score = ai_insights.get("ai_score")
                         if ai_score is not None:
                             st.markdown(display_metric_card(
-                                "AI Debt Score",
+                                "AI Score",
                                 f"{ai_score}/100"
                             ), unsafe_allow_html=True)
                         else:
@@ -1977,7 +2001,7 @@ class FinancialFlows:
 
                     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                     st.subheader("Debt Analysis Dashboard")
-                    debt_viz = FinancialVisualizer.plot_debt_payoff(debt_analysis, ai_score=ai_insights.get("ai_score"))
+                    debt_viz = FinancialVisualizer.plot_debt_payoff(debt_analysis)
                     st.plotly_chart(debt_viz, use_container_width=True, config={"displayModeBar": False})
 
                     st.session_state.debt_data = debt_analysis
@@ -1994,6 +2018,7 @@ class FinancialFlows:
         if 'retirement_form_data' not in st.session_state:
             st.session_state.retirement_form_data = {}
 
+        # Reset form functionality
         if not TEST_MODE:
             if st.button("🔄 Reset Form", key="reset_retirement"):
                 for key in list(st.session_state.keys()):
@@ -2091,7 +2116,7 @@ class FinancialFlows:
 
                     if ai_score is not None:
                         st.markdown(display_metric_card(
-                            "AI Retirement Readiness Score",
+                            "AI Score",
                             f"{ai_score}/100"
                         ), unsafe_allow_html=True)
                     else:
@@ -2151,7 +2176,7 @@ class FinancialFlows:
 
                 st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Retirement Planning Dashboard")
-                retirement_viz = FinancialVisualizer.plot_retirement_projections(retirement_analysis, ai_score=ai_insights.get("ai_score"))
+                retirement_viz = FinancialVisualizer.plot_retirement_projections(retirement_analysis)
                 st.plotly_chart(retirement_viz, use_container_width=True, config={"displayModeBar": False})
 
                 st.session_state.retirement_data = retirement_analysis
@@ -2166,7 +2191,8 @@ def run_tests():
     print("\n📊 Test 1: Zero income budget")
     try:
         budget_result = FinancialCalculator.calculate_budget_summary(0, {'housing': 1000})
-        assert budget_result['total_income'] == 0
+        assert budget_result['financial_health'] == 'Critical'
+        assert budget_result['health_score'] == 0
         print("✅ PASS: Zero income handled correctly")
     except Exception as e:
         print(f"❌ FAIL: {e}")
@@ -2176,7 +2202,8 @@ def run_tests():
         expenses = {'housing': 2000, 'utilities': 300, 'groceries': 400}
         budget_result = FinancialCalculator.calculate_budget_summary(8000, expenses)
         assert budget_result['savings_rate'] > 20
-        print(f"✅ PASS: High savings rate {budget_result['savings_rate']:.1f}%")
+        assert budget_result['health_score'] >= 70
+        print(f"✅ PASS: High savings rate {budget_result['savings_rate']:.1f}%, Health score: {budget_result['health_score']}")
     except Exception as e:
         print(f"❌ FAIL: {e}")
 
@@ -2246,13 +2273,16 @@ def main():
         ["Demo Dashboard", "Budgeting", "Investments", "Debt", "Retirement"]
     )
 
+    # Initialize session state for navigation
     if "selected_page" not in st.session_state:
         st.session_state.selected_page = menu
 
+    # Handle navigation changes with rerun
     if menu != st.session_state.selected_page:
         st.session_state.selected_page = menu
         st.rerun()
 
+    # Route to appropriate section
     if st.session_state.selected_page == "Demo Dashboard":
         FinancialFlows.demo_dashboard()
     elif st.session_state.selected_page == "Budgeting":
@@ -2280,8 +2310,8 @@ def main():
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>💰 Budget Health</h4>
-                    <p><strong>Savings: ${budget["savings"]:,.0f}</strong></p>
-                    <p>Rate: {budget["savings_rate"]:.1f}%{ai_text}</p>
+                    <p><strong>{budget["financial_health"]}</strong></p>
+                    <p>Savings Rate: {budget["savings_rate"]:.1f}%{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
 
@@ -2290,13 +2320,13 @@ def main():
                 investment = st.session_state.investment_data
                 ai_insights = st.session_state.get('investment_ai_insights', {})
                 ai_score = ai_insights.get('ai_score')
-                ai_text = f" | Score: {ai_score}/100" if ai_score else ""
+                ai_text = f" | Risk: {ai_score}/100" if ai_score else ""
 
                 st.markdown(f'''
                 <div class="metric-card">
                     <h4>📈 Investment Profile</h4>
                     <p><strong>{investment["risk_level"]}</strong></p>
-                    <p>Return: {investment["expected_annual_return"]:.1%}{ai_text}</p>
+                    <p>Expected Return: {investment["expected_annual_return"]:.1%}{ai_text}</p>
                 </div>
                 ''', unsafe_allow_html=True)
 
