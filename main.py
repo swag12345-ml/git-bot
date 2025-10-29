@@ -1697,36 +1697,174 @@ class FinancialFlows:
                 </div>
                 ''', unsafe_allow_html=True)
 
-                # Savings projection chart
+                # Enhanced Savings projection chart
                 st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
                 st.subheader("📊 Savings Projection (Next 12 Months)")
 
                 monthly_savings = budget_summary['savings']
                 months = list(range(1, 13))
-                cumulative_savings = [monthly_savings * month for month in months]
+                month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+                # Calculate projections with compound interest assumption (conservative 2% annual = 0.167% monthly)
+                monthly_interest_rate = 0.02 / 12
+                cumulative_savings = []
+                cumulative_with_interest = []
+
+                for month in months:
+                    # Simple accumulation
+                    cumulative_savings.append(monthly_savings * month)
+
+                    # With conservative interest
+                    if monthly_savings > 0:
+                        # Future value of series with interest
+                        fv = monthly_savings * (((1 + monthly_interest_rate) ** month - 1) / monthly_interest_rate)
+                        cumulative_with_interest.append(fv)
+                    else:
+                        cumulative_with_interest.append(monthly_savings * month)
+
+                # Create figure with detailed information
                 fig_projection = go.Figure()
+
+                # Add main savings line
                 fig_projection.add_trace(go.Scatter(
                     x=months,
                     y=cumulative_savings,
                     mode='lines+markers',
-                    name='Projected Savings',
-                    line=dict(color='#4ade80', width=3),
-                    marker=dict(size=8)
+                    name='Without Interest',
+                    line=dict(color='#3b82f6', width=3),
+                    marker=dict(size=10, symbol='circle'),
+                    hovertemplate='<b>Month %{x}</b><br>' +
+                                  'Cumulative: $%{y:,.2f}<br>' +
+                                  '<extra></extra>'
                 ))
 
+                # Add savings with interest line
+                fig_projection.add_trace(go.Scatter(
+                    x=months,
+                    y=cumulative_with_interest,
+                    mode='lines+markers',
+                    name='With 2% Interest',
+                    line=dict(color='#4ade80', width=3, dash='dash'),
+                    marker=dict(size=10, symbol='diamond'),
+                    hovertemplate='<b>Month %{x}</b><br>' +
+                                  'With Interest: $%{y:,.2f}<br>' +
+                                  '<extra></extra>'
+                ))
+
+                # Add milestone markers at 3, 6, 9, and 12 months
+                milestones = [3, 6, 9, 12]
+                for milestone in milestones:
+                    fig_projection.add_annotation(
+                        x=milestone,
+                        y=cumulative_with_interest[milestone-1],
+                        text=f"${cumulative_with_interest[milestone-1]:,.0f}",
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=2,
+                        arrowcolor="#4ade80",
+                        ax=0,
+                        ay=-40,
+                        font=dict(size=11, color='#4ade80', family='Arial Black'),
+                        bgcolor='#1f2937',
+                        bordercolor='#4ade80',
+                        borderwidth=2,
+                        borderpad=4
+                    )
+
                 fig_projection.update_layout(
-                    title="Estimated Savings Growth Based on Current Monthly Savings",
-                    xaxis_title="Months",
+                    title={
+                        'text': "Estimated Savings Growth Based on Current Monthly Savings",
+                        'x': 0.5,
+                        'xanchor': 'center',
+                        'font': {'size': 16, 'color': 'white'}
+                    },
+                    xaxis_title="Month",
                     yaxis_title="Cumulative Savings ($)",
-                    height=400,
+                    height=500,
                     paper_bgcolor='#1f2937',
                     plot_bgcolor='#1f2937',
                     font_color='white',
-                    hovermode='x unified'
+                    hovermode='x unified',
+                    showlegend=True,
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="center",
+                        x=0.5,
+                        font=dict(size=12, color='white')
+                    ),
+                    xaxis=dict(
+                        tickmode='array',
+                        tickvals=months,
+                        ticktext=month_names,
+                        gridcolor='#374151',
+                        showgrid=True
+                    ),
+                    yaxis=dict(
+                        gridcolor='#374151',
+                        showgrid=True,
+                        tickformat='$,.0f'
+                    )
                 )
 
                 st.plotly_chart(fig_projection, use_container_width=True, config={"displayModeBar": False})
+
+                # Add detailed breakdown table
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h4>💰 Monthly Contribution</h4>
+                        <h2>${monthly_savings:,.2f}</h2>
+                        <p>Your current monthly savings</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                with col2:
+                    year_total = cumulative_savings[-1]
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h4>📅 12-Month Total</h4>
+                        <h2>${year_total:,.2f}</h2>
+                        <p>Without interest earnings</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                with col3:
+                    year_total_interest = cumulative_with_interest[-1]
+                    interest_earned = year_total_interest - year_total
+                    st.markdown(f'''
+                    <div class="metric-card">
+                        <h4>🎯 With Interest (2%)</h4>
+                        <h2>${year_total_interest:,.2f}</h2>
+                        <p>Interest earned: ${interest_earned:,.2f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                # Add quarterly breakdown
+                st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+                with st.expander("📋 View Quarterly Breakdown", expanded=False):
+                    quarters_data = {
+                        'Quarter': ['Q1 (Jan-Mar)', 'Q2 (Apr-Jun)', 'Q3 (Jul-Sep)', 'Q4 (Oct-Dec)'],
+                        'Months': ['1-3', '4-6', '7-9', '10-12'],
+                        'Savings (No Interest)': [
+                            f"${cumulative_savings[2]:,.2f}",
+                            f"${cumulative_savings[5]:,.2f}",
+                            f"${cumulative_savings[8]:,.2f}",
+                            f"${cumulative_savings[11]:,.2f}"
+                        ],
+                        'Savings (With Interest)': [
+                            f"${cumulative_with_interest[2]:,.2f}",
+                            f"${cumulative_with_interest[5]:,.2f}",
+                            f"${cumulative_with_interest[8]:,.2f}",
+                            f"${cumulative_with_interest[11]:,.2f}"
+                        ]
+                    }
+                    quarters_df = pd.DataFrame(quarters_data)
+                    st.dataframe(quarters_df, use_container_width=True, hide_index=True)
 
                 st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
                 st.subheader("Budget Analysis Dashboard")
