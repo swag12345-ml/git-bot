@@ -2110,7 +2110,7 @@ class FinancialFlows:
             ai_insights = generate_ai_insights(retirement_analysis, "Retirement Analysis")
 
             if not TEST_MODE:
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4, col5 = st.columns(5)
 
                 with col1:
                     st.markdown(display_metric_card(
@@ -2130,23 +2130,16 @@ class FinancialFlows:
                         f"${retirement_analysis['retirement_corpus_needed']:,.0f}"
                     ), unsafe_allow_html=True)
 
+                # ✅ New Retirement Gap metric card
+                gap = retirement_analysis.get("retirement_gap", 0)
+                gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
+                gap_color = "red" if gap > 0 else "green"
                 with col4:
-                    ai_score = ai_insights.get("ai_score")
-                    gap = retirement_analysis["retirement_gap"]
+                    st.markdown(display_metric_card("Retirement Gap", gap_text, color=gap_color), unsafe_allow_html=True)
 
-                    if ai_score is not None:
-                        st.markdown(display_metric_card(
-                            "AI Score",
-                            f"{ai_score}/100"
-                        ), unsafe_allow_html=True)
-                    else:
-                        gap_color = "red" if gap > 0 else "green"
-                        gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
-                        st.markdown(display_metric_card(
-                            "Retirement Gap",
-                            gap_text,
-                            color=gap_color
-                        ), unsafe_allow_html=True)
+                with col5:
+                    ai_score = ai_insights.get("ai_score", 0)
+                    st.markdown(display_metric_card("AI Score", f"{ai_score}/100"), unsafe_allow_html=True)
 
                 st.subheader("Retirement Scenarios")
                 scenarios = retirement_analysis['scenarios']
