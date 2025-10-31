@@ -7,7 +7,7 @@ streamlit-option-menu
 numpy
 pillow
 dnspython
-
+yfinance
 matplotlib
 pytz
 pdfkit
