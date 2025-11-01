@@ -1,1021 +1,905 @@
-"""
-Real-Time Investment Portfolio Dashboard
-Built with Streamlit, Plotly, and Yahoo Finance
-
-Requirements:
-streamlit>=1.28.0
-plotly>=5.17.0
-yfinance>=0.2.31
-pandas>=2.0.0
-numpy>=1.24.0
-python-dateutil>=2.8.0
-"""
-
 import streamlit as st
+import yfinance as yf
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-import time
-from typing import Dict, List, Tuple
 import json
+import os
+import io
+import base64
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+import requests
+from xhtml2pdf import pisa
+from groq import Groq
+import feedparser
+from dotenv import load_dotenv
+
+load_dotenv()
 
 st.set_page_config(
-    page_title="Investment Portfolio Dashboard",
-    page_icon="📈",
+    page_title="Inclusive Investment Portfolio Builder",
+    page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-CUSTOM_CSS = """
+st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-
-    * {
-        font-family: 'Inter', sans-serif;
+    .stApp {
+        background-color: #0e1117;
+        color: #ffffff;
     }
-
     .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        margin-bottom: 2rem;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    }
-
-    .main-header h1 {
-        margin: 0;
         font-size: 2.5rem;
-        font-weight: 700;
-    }
-
-    .main-header p {
-        margin: 0.5rem 0 0 0;
-        opacity: 0.9;
-        font-size: 1rem;
-    }
-
-    .metric-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-        border: 1px solid #f0f0f0;
-    }
-
-    .metric-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-    }
-
-    .metric-label {
-        font-size: 0.85rem;
-        color: #666;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-    }
-
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #1a1a1a;
-    }
-
-    .metric-change {
-        font-size: 0.9rem;
-        margin-top: 0.5rem;
-    }
-
-    .positive {
-        color: #10b981;
-    }
-
-    .negative {
-        color: #ef4444;
-    }
-
-    .chart-container {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        margin-bottom: 1.5rem;
-    }
-
-    .watchlist-card {
-        background: white;
-        padding: 1rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        margin-bottom: 1rem;
-        border-left: 4px solid #667eea;
-        transition: all 0.3s ease;
-    }
-
-    .watchlist-card:hover {
-        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-        transform: translateX(5px);
-    }
-
-    .stButton>button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.5rem 2rem;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-
-    .footer {
+        font-weight: bold;
+        color: #ffffff;
         text-align: center;
-        padding: 2rem;
-        color: #666;
-        font-size: 0.9rem;
-        margin-top: 3rem;
-        border-top: 1px solid #e0e0e0;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
-
-    div[data-testid="stMetricValue"] {
-        font-size: 2rem;
+    .metric-card {
+        background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 5px solid #3b82f6;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        color: #ffffff;
     }
-
-    .sparkline {
-        height: 40px;
-        margin-top: 0.5rem;
+    .stButton > button {
+        background-color: #3b82f6;
+        color: #ffffff;
+        border-radius: 8px;
+    }
+    div[data-testid="stMetric"] {
+        background-color: #1f2937;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #4b5563;
     }
 </style>
-"""
+""", unsafe_allow_html=True)
 
-def initialize_session_state():
-    """Initialize session state variables"""
-    if 'portfolio' not in st.session_state:
-        st.session_state.portfolio = [
-            {'ticker': 'AAPL', 'quantity': 10, 'avg_cost': 150.0},
-            {'ticker': 'TSLA', 'quantity': 5, 'avg_cost': 200.0},
-            {'ticker': 'GOOGL', 'quantity': 8, 'avg_cost': 120.0},
-            {'ticker': 'AMZN', 'quantity': 6, 'avg_cost': 130.0},
-            {'ticker': 'MSFT', 'quantity': 12, 'avg_cost': 280.0}
-        ]
-
-    if 'watchlist' not in st.session_state:
-        st.session_state.watchlist = ['NVDA', 'META', 'NFLX', 'DIS']
-
-    if 'cash_balance' not in st.session_state:
-        st.session_state.cash_balance = 10000.0
-
-    if 'refresh_interval' not in st.session_state:
-        st.session_state.refresh_interval = 'Off'
-
-    if 'use_mock_data' not in st.session_state:
-        st.session_state.use_mock_data = False
-
-    if 'last_update' not in st.session_state:
-        st.session_state.last_update = datetime.now()
-
-    if 'target_allocation' not in st.session_state:
-        st.session_state.target_allocation = {
-            'Technology': 40,
-            'Consumer Cyclical': 25,
-            'Communication Services': 20,
-            'Healthcare': 10,
-            'Cash': 5
+@st.cache_data(ttl=300)
+def fetch_market_data():
+    """Fetch live market data with caching"""
+    try:
+        indices = {
+            '^GSPC': 'S&P 500',
+            '^DJI': 'Dow Jones',
+            '^IXIC': 'NASDAQ',
+            '^FTSE': 'FTSE 100',
+            '^N225': 'Nikkei 225',
+            '^HSI': 'Hang Seng'
         }
 
-def get_mock_data(ticker: str) -> Dict:
-    """Generate mock data for testing"""
-    np.random.seed(hash(ticker) % 10000)
-    base_price = np.random.uniform(50, 500)
+        data = {}
+        for ticker, name in indices.items():
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period='5d')
+                if not hist.empty:
+                    current = hist['Close'].iloc[-1]
+                    prev = hist['Close'].iloc[-2] if len(hist) > 1 else current
+                    change = ((current - prev) / prev) * 100
+                    data[name] = {'price': current, 'change': change}
+            except:
+                data[name] = {'price': 0, 'change': 0}
 
-    dates = pd.date_range(end=datetime.now(), periods=180, freq='D')
-    prices = base_price * (1 + np.cumsum(np.random.randn(180) * 0.02))
+        return data
+    except Exception as e:
+        st.warning(f"Market data fetch error: {str(e)}")
+        return {}
 
-    current_price = prices[-1]
-    prev_close = prices[-2]
+@st.cache_data(ttl=300)
+def fetch_sector_data():
+    """Fetch sector performance"""
+    try:
+        sectors = {
+            'XLK': 'Technology',
+            'XLF': 'Financials',
+            'XLV': 'Healthcare',
+            'XLE': 'Energy',
+            'XLI': 'Industrials',
+            'XLP': 'Consumer Staples',
+            'XLY': 'Consumer Discretionary',
+            'XLU': 'Utilities',
+            'XLRE': 'Real Estate',
+            'XLB': 'Materials'
+        }
 
-    return {
-        'ticker': ticker,
-        'current_price': current_price,
-        'previous_close': prev_close,
-        'change': current_price - prev_close,
-        'change_percent': ((current_price - prev_close) / prev_close) * 100,
-        'volume': np.random.randint(1000000, 50000000),
-        'market_cap': current_price * np.random.randint(100000000, 5000000000),
-        'pe_ratio': np.random.uniform(10, 50),
-        'sector': np.random.choice(['Technology', 'Consumer Cyclical', 'Communication Services', 'Healthcare', 'Financial Services']),
-        'history': pd.DataFrame({
-            'Date': dates,
-            'Close': prices,
-            'Open': prices * (1 + np.random.randn(180) * 0.01),
-            'High': prices * (1 + abs(np.random.randn(180)) * 0.02),
-            'Low': prices * (1 - abs(np.random.randn(180)) * 0.02),
-            'Volume': np.random.randint(1000000, 50000000, 180)
-        })
-    }
+        data = {}
+        for ticker, name in sectors.items():
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period='5d')
+                if not hist.empty:
+                    current = hist['Close'].iloc[-1]
+                    prev = hist['Close'].iloc[-2] if len(hist) > 1 else current
+                    change = ((current - prev) / prev) * 100
+                    data[name] = change
+            except:
+                data[name] = 0
 
-@st.cache_data(ttl=30)
-def fetch_stock_data(ticker: str, use_mock: bool = False) -> Dict:
-    """Fetch stock data from Yahoo Finance or mock data"""
-    if use_mock:
-        return get_mock_data(ticker)
+        return data
+    except Exception as e:
+        st.warning(f"Sector data fetch error: {str(e)}")
+        return {}
+
+@st.cache_data(ttl=300)
+def fetch_top_companies():
+    """Fetch top companies data"""
+    try:
+        tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'BRK-B']
+        data = []
+
+        for ticker in tickers:
+            try:
+                stock = yf.Ticker(ticker)
+                info = stock.info
+                hist = stock.history(period='5d')
+
+                if not hist.empty:
+                    current = hist['Close'].iloc[-1]
+                    prev = hist['Close'].iloc[-2] if len(hist) > 1 else current
+                    change = ((current - prev) / prev) * 100
+
+                    data.append({
+                        'Ticker': ticker,
+                        'Price': f"${current:.2f}",
+                        'Change %': f"{change:+.2f}%",
+                        'Market Cap': f"${info.get('marketCap', 0) / 1e9:.1f}B"
+                    })
+            except:
+                continue
+
+        return pd.DataFrame(data)
+    except Exception as e:
+        st.warning(f"Company data fetch error: {str(e)}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=600)
+def fetch_market_news():
+    """Fetch market news via Yahoo Finance RSS"""
+    try:
+        feed = feedparser.parse('https://finance.yahoo.com/news/rssindex')
+        news = []
+
+        for entry in feed.entries[:10]:
+            news.append({
+                'title': entry.title,
+                'link': entry.link,
+                'published': entry.published if hasattr(entry, 'published') else ''
+            })
+
+        return news
+    except Exception as e:
+        st.warning(f"News fetch error: {str(e)}")
+        return []
+
+def analyze_news_sentiment(news_items: List[Dict], groq_api_key: Optional[str]) -> Dict:
+    """Analyze news sentiment using LLaMA"""
+    if not groq_api_key or not news_items:
+        return {
+            'sentiment': 'Neutral',
+            'score': 50,
+            'summary': 'Sentiment analysis unavailable'
+        }
 
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        hist = stock.history(period='6mo')
+        client = Groq(api_key=groq_api_key)
 
-        if hist.empty:
-            return get_mock_data(ticker)
+        news_text = "\n".join([f"- {item['title']}" for item in news_items[:5]])
 
-        current_price = info.get('currentPrice', hist['Close'].iloc[-1])
-        prev_close = info.get('previousClose', hist['Close'].iloc[-2] if len(hist) > 1 else current_price)
+        prompt = f"""Analyze the sentiment of these market news headlines:
 
+{news_text}
+
+Return ONLY valid JSON with keys: sentiment (Positive/Neutral/Negative), score (0-100), summary (2 sentences)
+Example: {{"sentiment": "Positive", "score": 65, "summary": "Markets show..."}}"""
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+
+        result = json.loads(response.choices[0].message.content.strip())
+        return result
+    except:
         return {
-            'ticker': ticker,
-            'current_price': current_price,
-            'previous_close': prev_close,
-            'change': current_price - prev_close,
-            'change_percent': ((current_price - prev_close) / prev_close) * 100 if prev_close else 0,
-            'volume': info.get('volume', hist['Volume'].iloc[-1]),
-            'market_cap': info.get('marketCap', 0),
-            'pe_ratio': info.get('trailingPE', 0),
-            'sector': info.get('sector', 'Unknown'),
-            'history': hist
+            'sentiment': 'Neutral',
+            'score': 50,
+            'summary': 'Unable to analyze sentiment at this time'
         }
-    except Exception as e:
-        st.warning(f"Failed to fetch {ticker}, using mock data: {str(e)}")
-        return get_mock_data(ticker)
 
-def calculate_portfolio_metrics(portfolio: List[Dict], use_mock: bool = False) -> Dict:
-    """Calculate comprehensive portfolio metrics"""
-    total_value = 0
-    total_cost = 0
-    holdings_data = []
-
-    for holding in portfolio:
-        stock_data = fetch_stock_data(holding['ticker'], use_mock)
-        current_value = stock_data['current_price'] * holding['quantity']
-        cost_basis = holding['avg_cost'] * holding['quantity']
-        profit_loss = current_value - cost_basis
-        pl_percent = (profit_loss / cost_basis) * 100 if cost_basis > 0 else 0
-
-        holdings_data.append({
-            'ticker': holding['ticker'],
-            'quantity': holding['quantity'],
-            'avg_cost': holding['avg_cost'],
-            'current_price': stock_data['current_price'],
-            'current_value': current_value,
-            'cost_basis': cost_basis,
-            'profit_loss': profit_loss,
-            'pl_percent': pl_percent,
-            'day_change': stock_data['change'],
-            'day_change_percent': stock_data['change_percent'],
-            'sector': stock_data['sector'],
-            'history': stock_data['history']
-        })
-
-        total_value += current_value
-        total_cost += cost_basis
-
-    total_pl = total_value - total_cost
-    total_pl_percent = (total_pl / total_cost) * 100 if total_cost > 0 else 0
-
-    daily_change = sum([h['day_change'] * h['quantity'] for h in holdings_data])
-    daily_change_percent = (daily_change / total_value) * 100 if total_value > 0 else 0
-
-    returns = []
-    for h in holdings_data:
-        if not h['history'].empty and len(h['history']) > 1:
-            returns.extend(h['history']['Close'].pct_change().dropna().values * (h['current_value'] / total_value))
-
-    sharpe_ratio = 0
-    if len(returns) > 0:
-        returns_array = np.array(returns)
-        sharpe_ratio = (np.mean(returns_array) * np.sqrt(252)) / (np.std(returns_array) + 1e-10)
-
-    return {
-        'total_value': total_value,
-        'total_cost': total_cost,
-        'total_pl': total_pl,
-        'total_pl_percent': total_pl_percent,
-        'daily_change': daily_change,
-        'daily_change_percent': daily_change_percent,
-        'sharpe_ratio': sharpe_ratio,
-        'holdings': holdings_data
+def generate_ai_portfolio(profile: Dict, tickers: List[str], esg_enabled: bool, groq_api_key: Optional[str]) -> Dict:
+    """Generate AI portfolio allocation using LLaMA"""
+    fallback = {
+        'allocations': {t: round(100 / len(tickers), 2) for t in tickers} if tickers else {},
+        'expected_return': 0.08,
+        'volatility': 0.15,
+        'diversification_index': 70,
+        'risk_level': profile.get('risk_profile', 'Moderate'),
+        'explanation': 'Using deterministic fallback allocation'
     }
 
-def create_portfolio_performance_chart(holdings_data: List[Dict]) -> go.Figure:
-    """Create portfolio performance line chart"""
-    all_dates = []
-    portfolio_values = []
+    if not groq_api_key or not tickers:
+        return fallback
 
-    if holdings_data:
-        min_dates = [h['history'].index.min() for h in holdings_data if not h['history'].empty]
-        if min_dates:
-            min_date = min(min_dates)
-            if hasattr(min_date, 'tz_localize'):
-                min_date = pd.Timestamp(min_date).tz_localize(None)
-            else:
-                min_date = pd.Timestamp(min_date)
+    try:
+        client = Groq(api_key=groq_api_key)
 
-            now = pd.Timestamp.now()
-            date_range = pd.date_range(start=min_date, end=now, freq='D')
+        esg_note = " CRITICAL: User requested ESG/inclusive options (ESGU, SHE, SUSA). You MUST include these if available in the ticker list." if esg_enabled else ""
 
-            for date in date_range:
-                daily_value = 0
-                for holding in holdings_data:
-                    if not holding['history'].empty:
-                        hist = holding['history']
-                        hist_index = hist.index.tz_localize(None) if hasattr(hist.index, 'tz_localize') else hist.index
+        prompt = f"""You are a professional portfolio manager. Create an optimal portfolio allocation.
 
-                        try:
-                            if date in hist_index:
-                                price = hist.iloc[(hist_index == date).argmax()]['Close']
-                            elif date < hist_index.min():
-                                price = hist['Close'].iloc[0]
-                            else:
-                                price = hist['Close'].iloc[-1]
-                            daily_value += price * holding['quantity']
-                        except:
-                            daily_value += hist['Close'].iloc[-1] * holding['quantity']
+User Profile:
+- Risk Profile: {profile.get('risk_profile', 'Moderate')}
+- Time Horizon: {profile.get('time_horizon', 10)} years
+- Investment Amount: ${profile.get('capital', 10000)}
+- Age: {profile.get('age', 35)}
 
-                all_dates.append(date)
-                portfolio_values.append(daily_value)
+Available Tickers: {', '.join(tickers)}
+{esg_note}
 
-    fig = go.Figure()
+Return ONLY valid JSON with these exact keys:
+{{
+  "allocations": {{"TICKER1": 30.5, "TICKER2": 25.0, ...}},
+  "expected_return": 0.08,
+  "volatility": 0.15,
+  "diversification_index": 75,
+  "risk_level": "Moderate",
+  "explanation": "Brief 2-sentence explanation"
+}}
 
-    fig.add_trace(go.Scatter(
-        x=all_dates,
-        y=portfolio_values,
-        mode='lines',
-        name='Portfolio Value',
-        line=dict(color='#667eea', width=3),
-        fill='tonexty',
-        fillcolor='rgba(102, 126, 234, 0.1)',
-        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Value: $%{y:,.2f}<extra></extra>'
-    ))
+Allocations must sum to 100. Use realistic return (0.04-0.12) and volatility (0.05-0.25) estimates."""
 
-    fig.update_layout(
-        title='Portfolio Performance Over Time',
-        xaxis_title='Date',
-        yaxis_title='Portfolio Value ($)',
-        hovermode='x unified',
-        template='plotly_white',
-        height=400,
-        showlegend=False,
-        margin=dict(l=0, r=0, t=40, b=0)
-    )
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1000
+        )
 
-    return fig
+        content = response.choices[0].message.content.strip()
 
-def create_allocation_chart(holdings_data: List[Dict]) -> go.Figure:
-    """Create allocation donut chart"""
-    tickers = [h['ticker'] for h in holdings_data]
-    values = [h['current_value'] for h in holdings_data]
-    colors = px.colors.qualitative.Set3[:len(tickers)]
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
 
+        result = json.loads(content)
+
+        required_keys = ['allocations', 'expected_return', 'volatility', 'diversification_index', 'risk_level', 'explanation']
+        if not all(k in result for k in required_keys):
+            return fallback
+
+        total = sum(result['allocations'].values())
+        if abs(total - 100) > 0.1:
+            result['allocations'] = {k: (v / total) * 100 for k, v in result['allocations'].items()}
+
+        return result
+    except Exception as e:
+        st.warning(f"AI allocation failed: {str(e)}")
+        return fallback
+
+def fetch_historical_prices(tickers: List[str], period: str = '1y') -> pd.DataFrame:
+    """Fetch historical prices for multiple tickers"""
+    try:
+        data = yf.download(tickers, period=period, progress=False)['Close']
+        if isinstance(data, pd.Series):
+            data = data.to_frame(name=tickers[0])
+        return data.fillna(method='ffill').fillna(method='bfill')
+    except Exception as e:
+        st.warning(f"Historical data fetch error: {str(e)}")
+        return pd.DataFrame()
+
+def plot_allocation_pie(allocations: Dict) -> go.Figure:
+    """Create allocation pie chart"""
     fig = go.Figure(data=[go.Pie(
-        labels=tickers,
-        values=values,
-        hole=0.5,
-        marker=dict(colors=colors, line=dict(color='white', width=2)),
-        textposition='auto',
-        textinfo='label+percent',
-        hovertemplate='<b>%{label}</b><br>Value: $%{value:,.2f}<br>%{percent}<extra></extra>'
+        labels=list(allocations.keys()),
+        values=list(allocations.values()),
+        hole=0.4,
+        textposition='inside',
+        textinfo='percent+label'
     )])
 
     fig.update_layout(
-        title='Portfolio Allocation',
+        title="Portfolio Allocation",
         height=400,
-        showlegend=True,
-        legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.05),
-        margin=dict(l=0, r=0, t=40, b=0)
+        paper_bgcolor='#1f2937',
+        plot_bgcolor='#1f2937',
+        font_color='white',
+        showlegend=True
     )
 
     return fig
 
-def create_sector_allocation_chart(holdings_data: List[Dict]) -> go.Figure:
-    """Create sector allocation donut chart"""
-    sector_values = {}
-    for h in holdings_data:
-        sector = h['sector']
-        if sector in sector_values:
-            sector_values[sector] += h['current_value']
-        else:
-            sector_values[sector] = h['current_value']
+def plot_ai_vs_manual(ai_alloc: Dict, manual_alloc: Dict) -> go.Figure:
+    """Compare AI vs manual allocation"""
+    tickers = list(set(list(ai_alloc.keys()) + list(manual_alloc.keys())))
 
-    sectors = list(sector_values.keys())
-    values = list(sector_values.values())
-    colors = px.colors.qualitative.Pastel[:len(sectors)]
+    ai_vals = [ai_alloc.get(t, 0) for t in tickers]
+    manual_vals = [manual_alloc.get(t, 0) for t in tickers]
 
-    fig = go.Figure(data=[go.Pie(
-        labels=sectors,
-        values=values,
-        hole=0.5,
-        marker=dict(colors=colors, line=dict(color='white', width=2)),
-        textposition='auto',
-        textinfo='label+percent',
-        hovertemplate='<b>%{label}</b><br>Value: $%{value:,.2f}<br>%{percent}<extra></extra>'
-    )])
+    fig = go.Figure(data=[
+        go.Bar(name='AI Recommended', x=tickers, y=ai_vals, marker_color='#3b82f6'),
+        go.Bar(name='Manual', x=tickers, y=manual_vals, marker_color='#10b981')
+    ])
 
     fig.update_layout(
-        title='Sector Allocation',
+        title="AI vs Manual Allocation",
+        xaxis_title="Ticker",
+        yaxis_title="Allocation %",
+        barmode='group',
         height=400,
-        showlegend=True,
-        legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.05),
-        margin=dict(l=0, r=0, t=40, b=0)
+        paper_bgcolor='#1f2937',
+        plot_bgcolor='#1f2937',
+        font_color='white'
     )
 
     return fig
 
-def create_risk_return_heatmap(holdings_data: List[Dict]) -> go.Figure:
-    """Create risk-return scatter plot"""
-    tickers = []
-    returns = []
-    volatilities = []
-
-    for h in holdings_data:
-        if not h['history'].empty and len(h['history']) > 20:
-            price_changes = h['history']['Close'].pct_change().dropna()
-            annual_return = (h['current_price'] / h['avg_cost'] - 1) * 100
-            annual_volatility = price_changes.std() * np.sqrt(252) * 100
-
-            tickers.append(h['ticker'])
-            returns.append(annual_return)
-            volatilities.append(annual_volatility)
-
+def plot_historical_prices(prices_df: pd.DataFrame) -> go.Figure:
+    """Plot historical price trends"""
     fig = go.Figure()
 
-    fig.add_trace(go.Scatter(
-        x=volatilities,
-        y=returns,
-        mode='markers+text',
-        text=tickers,
-        textposition='top center',
-        marker=dict(
-            size=[h['current_value'] / 100 for h in holdings_data[:len(tickers)]],
-            color=returns,
-            colorscale='RdYlGn',
-            showscale=True,
-            colorbar=dict(title="Return %"),
-            line=dict(color='white', width=1)
-        ),
-        hovertemplate='<b>%{text}</b><br>Volatility: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>'
-    ))
-
-    fig.update_layout(
-        title='Risk-Return Analysis',
-        xaxis_title='Volatility (Annual %)',
-        yaxis_title='Return (%)',
-        template='plotly_white',
-        height=400,
-        margin=dict(l=0, r=0, t=40, b=0)
-    )
-
-    return fig
-
-def create_candlestick_chart(ticker: str, history: pd.DataFrame) -> go.Figure:
-    """Create candlestick chart for individual stock"""
-    fig = go.Figure(data=[go.Candlestick(
-        x=history.index,
-        open=history['Open'],
-        high=history['High'],
-        low=history['Low'],
-        close=history['Close'],
-        name=ticker
-    )])
-
-    fig.update_layout(
-        title=f'{ticker} Price Chart',
-        yaxis_title='Price ($)',
-        xaxis_title='Date',
-        template='plotly_white',
-        height=400,
-        xaxis_rangeslider_visible=False,
-        margin=dict(l=0, r=0, t=40, b=0)
-    )
-
-    return fig
-
-def create_sparkline(history: pd.DataFrame, height: int = 40) -> go.Figure:
-    """Create minimal sparkline chart"""
-    fig = go.Figure()
-
-    prices = history['Close'].values
-    color = '#10b981' if prices[-1] > prices[0] else '#ef4444'
-
-    fig.add_trace(go.Scatter(
-        x=list(range(len(prices))),
-        y=prices,
-        mode='lines',
-        line=dict(color=color, width=2),
-        fill='tozeroy',
-        fillcolor=f'rgba({16 if color == "#10b981" else 239}, {185 if color == "#10b981" else 68}, {129 if color == "#10b981" else 68}, 0.1)',
-        hovertemplate='%{y:.2f}<extra></extra>'
-    ))
-
-    fig.update_layout(
-        showlegend=False,
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        height=height,
-        margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)'
-    )
-
-    return fig
-
-def monte_carlo_simulation(holdings_data: List[Dict], days: int = 252, simulations: int = 1000) -> Tuple[np.ndarray, np.ndarray]:
-    """Run Monte Carlo simulation for portfolio forecast"""
-    portfolio_returns = []
-
-    for h in holdings_data:
-        if not h['history'].empty and len(h['history']) > 1:
-            returns = h['history']['Close'].pct_change().dropna()
-            weight = h['current_value'] / sum([x['current_value'] for x in holdings_data])
-            portfolio_returns.append(returns.values * weight)
-
-    if not portfolio_returns:
-        return np.array([]), np.array([])
-
-    combined_returns = np.sum(portfolio_returns, axis=0)
-    mean_return = np.mean(combined_returns)
-    std_return = np.std(combined_returns)
-
-    initial_value = sum([h['current_value'] for h in holdings_data])
-
-    simulation_results = np.zeros((simulations, days))
-
-    for i in range(simulations):
-        daily_returns = np.random.normal(mean_return, std_return, days)
-        price_path = initial_value * np.cumprod(1 + daily_returns)
-        simulation_results[i] = price_path
-
-    return np.arange(days), simulation_results
-
-def create_monte_carlo_chart(days: np.ndarray, simulations: np.ndarray) -> go.Figure:
-    """Create Monte Carlo simulation chart"""
-    fig = go.Figure()
-
-    percentiles = [10, 25, 50, 75, 90]
-    colors = ['rgba(239, 68, 68, 0.3)', 'rgba(249, 115, 22, 0.3)', 'rgba(59, 130, 246, 0.5)',
-              'rgba(34, 197, 94, 0.3)', 'rgba(16, 185, 129, 0.3)']
-
-    for i, p in enumerate(percentiles):
-        percentile_values = np.percentile(simulations, p, axis=0)
+    for col in prices_df.columns:
         fig.add_trace(go.Scatter(
-            x=days,
-            y=percentile_values,
+            x=prices_df.index,
+            y=prices_df[col],
             mode='lines',
-            name=f'{p}th Percentile',
-            line=dict(width=2),
-            fill='tonexty' if i > 0 else None,
-            fillcolor=colors[i]
+            name=col
         ))
 
     fig.update_layout(
-        title='Monte Carlo Simulation (1 Year Forecast)',
-        xaxis_title='Days',
-        yaxis_title='Portfolio Value ($)',
-        template='plotly_white',
+        title="Historical Price Trends",
+        xaxis_title="Date",
+        yaxis_title="Price ($)",
         height=400,
-        hovermode='x unified',
-        margin=dict(l=0, r=0, t=40, b=0)
+        paper_bgcolor='#1f2937',
+        plot_bgcolor='#1f2937',
+        font_color='white',
+        hovermode='x unified'
     )
 
     return fig
 
-def create_rebalancing_chart(current_allocation: Dict, target_allocation: Dict) -> go.Figure:
-    """Create rebalancing comparison chart"""
-    categories = list(set(list(current_allocation.keys()) + list(target_allocation.keys())))
+def plot_risk_return_scatter(allocations: Dict, prices_df: pd.DataFrame) -> go.Figure:
+    """Risk vs return scatter plot"""
+    returns = prices_df.pct_change().dropna()
 
-    current_values = [current_allocation.get(cat, 0) for cat in categories]
-    target_values = [target_allocation.get(cat, 0) for cat in categories]
+    data_points = []
+    for ticker in allocations.keys():
+        if ticker in returns.columns:
+            annual_return = returns[ticker].mean() * 252
+            volatility = returns[ticker].std() * np.sqrt(252)
+            allocation = allocations[ticker]
 
-    fig = go.Figure()
+            data_points.append({
+                'ticker': ticker,
+                'return': annual_return * 100,
+                'risk': volatility * 100,
+                'allocation': allocation
+            })
 
-    fig.add_trace(go.Bar(
-        x=categories,
-        y=current_values,
-        name='Current',
-        marker_color='rgba(102, 126, 234, 0.7)',
-        hovertemplate='<b>%{x}</b><br>Current: %{y:.1f}%<extra></extra>'
-    ))
+    df = pd.DataFrame(data_points)
 
-    fig.add_trace(go.Bar(
-        x=categories,
-        y=target_values,
-        name='Target',
-        marker_color='rgba(16, 185, 129, 0.7)',
-        hovertemplate='<b>%{x}</b><br>Target: %{y:.1f}%<extra></extra>'
+    if df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="Insufficient data", x=0.5, y=0.5, showarrow=False)
+    else:
+        fig = px.scatter(
+            df,
+            x='risk',
+            y='return',
+            size='allocation',
+            text='ticker',
+            labels={'risk': 'Volatility (%)', 'return': 'Expected Return (%)'},
+            title="Risk vs Return Profile"
+        )
+
+        fig.update_traces(textposition='top center')
+
+    fig.update_layout(
+        height=400,
+        paper_bgcolor='#1f2937',
+        plot_bgcolor='#1f2937',
+        font_color='white'
+    )
+
+    return fig
+
+def plot_volatility_heatmap(prices_df: pd.DataFrame) -> go.Figure:
+    """Volatility heatmap"""
+    returns = prices_df.pct_change().dropna()
+    corr = returns.corr()
+
+    fig = go.Figure(data=go.Heatmap(
+        z=corr.values,
+        x=corr.columns,
+        y=corr.columns,
+        colorscale='RdYlGn',
+        zmid=0
     ))
 
     fig.update_layout(
-        title='Current vs Target Allocation',
-        xaxis_title='Category',
-        yaxis_title='Allocation (%)',
-        barmode='group',
-        template='plotly_white',
+        title="Asset Correlation Heatmap",
         height=400,
-        margin=dict(l=0, r=0, t=40, b=0)
+        paper_bgcolor='#1f2937',
+        plot_bgcolor='#1f2937',
+        font_color='white'
     )
 
     return fig
 
-def render_header(metrics: Dict):
-    """Render dashboard header with key metrics"""
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+def plot_growth_projections(capital: float, expected_return: float, years: int = 10) -> go.Figure:
+    """Growth projection chart"""
+    time = list(range(years + 1))
+    conservative = [capital * ((1 + expected_return * 0.7) ** t) for t in time]
+    expected = [capital * ((1 + expected_return) ** t) for t in time]
+    optimistic = [capital * ((1 + expected_return * 1.3) ** t) for t in time]
 
-    st.markdown(f"""
-    <div class="main-header">
-        <h1>📈 Real-Time Investment Portfolio Dashboard</h1>
-        <p>Last Updated: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=time, y=conservative, name='Conservative', line=dict(dash='dash', color='#f59e0b')))
+    fig.add_trace(go.Scatter(x=time, y=expected, name='Expected', line=dict(width=3, color='#3b82f6')))
+    fig.add_trace(go.Scatter(x=time, y=optimistic, name='Optimistic', line=dict(dash='dash', color='#10b981')))
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    fig.update_layout(
+        title=f"Portfolio Growth Projection ({years} Years)",
+        xaxis_title="Years",
+        yaxis_title="Portfolio Value ($)",
+        height=400,
+        paper_bgcolor='#1f2937',
+        plot_bgcolor='#1f2937',
+        font_color='white'
+    )
 
-    with col1:
-        st.metric(
-            label="Portfolio Value",
-            value=f"${metrics['total_value']:,.2f}",
-            delta=f"${metrics['total_pl']:,.2f} ({metrics['total_pl_percent']:.2f}%)"
+    return fig
+
+def plot_benchmark_comparison(portfolio_alloc: Dict, prices_df: pd.DataFrame, benchmark: str = 'SPY') -> go.Figure:
+    """Benchmark comparison"""
+    try:
+        bench_data = yf.download(benchmark, period='1y', progress=False)['Close']
+        bench_returns = (bench_data / bench_data.iloc[0]) * 100
+
+        portfolio_value = pd.Series(0, index=prices_df.index)
+        for ticker, weight in portfolio_alloc.items():
+            if ticker in prices_df.columns:
+                normalized = (prices_df[ticker] / prices_df[ticker].iloc[0]) * (weight / 100) * 100
+                portfolio_value += normalized
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=portfolio_value.index, y=portfolio_value.values, name='Your Portfolio', line=dict(width=3)))
+        fig.add_trace(go.Scatter(x=bench_returns.index, y=bench_returns.values, name=benchmark, line=dict(dash='dash')))
+
+        fig.update_layout(
+            title=f"Cumulative Returns vs {benchmark}",
+            xaxis_title="Date",
+            yaxis_title="Cumulative Return (%)",
+            height=400,
+            paper_bgcolor='#1f2937',
+            plot_bgcolor='#1f2937',
+            font_color='white'
         )
 
-    with col2:
-        st.metric(
-            label="Daily Change",
-            value=f"{metrics['daily_change_percent']:.2f}%",
-            delta=f"${metrics['daily_change']:,.2f}"
-        )
+        return fig
+    except Exception as e:
+        st.warning(f"Benchmark comparison error: {str(e)}")
+        fig = go.Figure()
+        fig.add_annotation(text="Benchmark data unavailable", x=0.5, y=0.5, showarrow=False)
+        fig.update_layout(height=400, paper_bgcolor='#1f2937', font_color='white')
+        return fig
 
-    with col3:
-        week_change = metrics['total_pl'] * 0.7
-        st.metric(
-            label="7D P/L",
-            value=f"${week_change:,.2f}",
-            delta=f"{(week_change/metrics['total_value'])*100:.2f}%"
-        )
+def generate_pdf_report(portfolio_data: Dict, charts: List[go.Figure]) -> bytes:
+    """Generate PDF report using xhtml2pdf"""
+    try:
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial; margin: 20px; }}
+                h1 {{ color: #3b82f6; }}
+                .metric {{ background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Investment Portfolio Report</h1>
+            <p>Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
 
-    with col4:
-        st.metric(
-            label="Cash Balance",
-            value=f"${st.session_state.cash_balance:,.2f}"
-        )
+            <h2>Portfolio Summary</h2>
+            <div class="metric">
+                <strong>Investment Amount:</strong> ${portfolio_data.get('capital', 0):,.2f}<br>
+                <strong>Expected Return:</strong> {portfolio_data.get('expected_return', 0):.2%}<br>
+                <strong>Risk Level:</strong> {portfolio_data.get('risk_level', 'N/A')}<br>
+                <strong>Diversification Index:</strong> {portfolio_data.get('diversification_index', 0)}/100
+            </div>
 
-    with col5:
-        st.metric(
-            label="Sharpe Ratio",
-            value=f"{metrics['sharpe_ratio']:.2f}"
-        )
+            <h2>Allocation</h2>
+            <table border="1" cellpadding="5" style="border-collapse: collapse; width: 100%;">
+                <tr><th>Ticker</th><th>Allocation %</th></tr>
+                {''.join([f"<tr><td>{k}</td><td>{v:.2f}%</td></tr>" for k, v in portfolio_data.get('allocations', {}).items()])}
+            </table>
 
-def render_portfolio_tab(metrics: Dict):
-    """Render portfolio tab"""
-    st.subheader("📊 Holdings")
+            <h2>AI Commentary</h2>
+            <p>{portfolio_data.get('explanation', 'No commentary available')}</p>
+        </body>
+        </html>
+        """
 
-    df = pd.DataFrame([{
-        'Ticker': h['ticker'],
-        'Quantity': h['quantity'],
-        'Avg Cost': f"${h['avg_cost']:.2f}",
-        'Current Price': f"${h['current_price']:.2f}",
-        'Value': f"${h['current_value']:,.2f}",
-        'P/L': f"${h['profit_loss']:,.2f}",
-        'P/L %': f"{h['pl_percent']:.2f}%",
-        'Day Change': f"{h['day_change_percent']:.2f}%"
-    } for h in metrics['holdings']])
-
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-    st.markdown("#### Add New Holding")
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-
-    with col1:
-        new_ticker = st.text_input("Ticker Symbol", key="new_ticker")
-    with col2:
-        new_quantity = st.number_input("Quantity", min_value=1, value=1, key="new_quantity")
-    with col3:
-        new_avg_cost = st.number_input("Avg Cost", min_value=0.01, value=100.0, key="new_avg_cost")
-    with col4:
-        st.write("")
-        st.write("")
-        if st.button("Add Holding", type="primary"):
-            if new_ticker:
-                st.session_state.portfolio.append({
-                    'ticker': new_ticker.upper(),
-                    'quantity': new_quantity,
-                    'avg_cost': new_avg_cost
-                })
-                st.success(f"Added {new_ticker.upper()} to portfolio!")
-                st.rerun()
-
-    st.markdown("---")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.plotly_chart(create_allocation_chart(metrics['holdings']), use_container_width=True)
-
-    with col2:
-        st.plotly_chart(create_sector_allocation_chart(metrics['holdings']), use_container_width=True)
-
-    st.plotly_chart(create_portfolio_performance_chart(metrics['holdings']), use_container_width=True)
-
-    st.markdown("#### Individual Stock Charts")
-    for holding in metrics['holdings']:
-        with st.expander(f"{holding['ticker']} - ${holding['current_price']:.2f}"):
-            st.plotly_chart(create_candlestick_chart(holding['ticker'], holding['history']), use_container_width=True)
-
-def render_watchlist_tab():
-    """Render watchlist tab"""
-    st.subheader("👀 Watchlist")
-
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        new_watch_ticker = st.text_input("Add ticker to watchlist", key="new_watch")
-    with col2:
-        st.write("")
-        st.write("")
-        if st.button("Add to Watchlist", type="primary"):
-            if new_watch_ticker and new_watch_ticker.upper() not in st.session_state.watchlist:
-                st.session_state.watchlist.append(new_watch_ticker.upper())
-                st.success(f"Added {new_watch_ticker.upper()} to watchlist!")
-                st.rerun()
-
-    st.markdown("---")
-
-    for ticker in st.session_state.watchlist:
-        stock_data = fetch_stock_data(ticker, st.session_state.use_mock_data)
-
-        col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
-
-        with col1:
-            st.markdown(f"### {ticker}")
-            change_class = "positive" if stock_data['change'] >= 0 else "negative"
-            st.markdown(f"<span class='{change_class}'>{stock_data['change_percent']:+.2f}%</span>", unsafe_allow_html=True)
-
-        with col2:
-            st.metric("Price", f"${stock_data['current_price']:.2f}")
-
-        with col3:
-            st.metric("Volume", f"{stock_data['volume']:,}")
-
-        with col4:
-            if not stock_data['history'].empty:
-                fig = create_sparkline(stock_data['history'][-30:])
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-
-        st.markdown("---")
-
-def render_analytics_tab(metrics: Dict):
-    """Render analytics tab"""
-    st.subheader("📈 Advanced Analytics")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.plotly_chart(create_risk_return_heatmap(metrics['holdings']), use_container_width=True)
-
-    with col2:
-        if metrics['holdings'] and not metrics['holdings'][0]['history'].empty:
-            volatilities = []
-            for h in metrics['holdings']:
-                if len(h['history']) > 20:
-                    rolling_vol = h['history']['Close'].pct_change().rolling(window=20).std() * np.sqrt(252) * 100
-                    volatilities.append(rolling_vol)
-
-            if volatilities:
-                fig = go.Figure()
-                for i, h in enumerate(metrics['holdings']):
-                    if i < len(volatilities):
-                        fig.add_trace(go.Scatter(
-                            x=h['history'].index[-len(volatilities[i]):],
-                            y=volatilities[i],
-                            mode='lines',
-                            name=h['ticker']
-                        ))
-
-                fig.update_layout(
-                    title='Rolling Volatility (20-Day)',
-                    xaxis_title='Date',
-                    yaxis_title='Volatility (%)',
-                    template='plotly_white',
-                    height=400,
-                    margin=dict(l=0, r=0, t=40, b=0)
-                )
-
-                st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("🎲 Monte Carlo Simulation")
-
-    col1, col2 = st.columns([1, 3])
-
-    with col1:
-        sim_days = st.slider("Forecast Days", 30, 365, 252)
-        sim_runs = st.slider("Simulations", 100, 5000, 1000, step=100)
-
-        if st.button("Run Simulation", type="primary"):
-            with st.spinner("Running simulation..."):
-                days, simulations = monte_carlo_simulation(metrics['holdings'], sim_days, sim_runs)
-                if len(simulations) > 0:
-                    st.session_state.monte_carlo_results = (days, simulations)
-
-    with col2:
-        if 'monte_carlo_results' in st.session_state:
-            days, simulations = st.session_state.monte_carlo_results
-            st.plotly_chart(create_monte_carlo_chart(days, simulations), use_container_width=True)
-
-            final_values = simulations[:, -1]
-            st.markdown(f"""
-            **Simulation Results (Day {len(days)}):**
-            - 10th Percentile: ${np.percentile(final_values, 10):,.2f}
-            - 50th Percentile (Median): ${np.percentile(final_values, 50):,.2f}
-            - 90th Percentile: ${np.percentile(final_values, 90):,.2f}
-            - Expected Return: {((np.mean(final_values) / metrics['total_value']) - 1) * 100:.2f}%
-            """)
-
-def render_rebalancing_tab(metrics: Dict):
-    """Render rebalancing tab"""
-    st.subheader("⚖️ Portfolio Rebalancing")
-
-    sector_allocation = {}
-    for h in metrics['holdings']:
-        sector = h['sector']
-        if sector in sector_allocation:
-            sector_allocation[sector] += h['current_value']
-        else:
-            sector_allocation[sector] = h['current_value']
-
-    total_value = sum(sector_allocation.values())
-    current_allocation = {k: (v / total_value) * 100 for k, v in sector_allocation.items()}
-    current_allocation['Cash'] = (st.session_state.cash_balance / (total_value + st.session_state.cash_balance)) * 100
-
-    st.plotly_chart(create_rebalancing_chart(current_allocation, st.session_state.target_allocation), use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("Rebalancing Suggestions")
-
-    suggestions = []
-    for sector, target_pct in st.session_state.target_allocation.items():
-        current_pct = current_allocation.get(sector, 0)
-        diff = target_pct - current_pct
-
-        if abs(diff) > 2:
-            action = "Buy" if diff > 0 else "Sell"
-            amount = abs(diff) * (total_value + st.session_state.cash_balance) / 100
-            suggestions.append({
-                'Sector': sector,
-                'Action': action,
-                'Current %': f"{current_pct:.1f}%",
-                'Target %': f"{target_pct:.1f}%",
-                'Difference': f"{diff:+.1f}%",
-                'Amount': f"${amount:,.2f}"
-            })
-
-    if suggestions:
-        df = pd.DataFrame(suggestions)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    else:
-        st.success("✅ Portfolio is well balanced!")
-
-    st.markdown("---")
-    st.subheader("Set Target Allocation")
-
-    for sector in st.session_state.target_allocation.keys():
-        st.session_state.target_allocation[sector] = st.slider(
-            sector,
-            0,
-            100,
-            int(st.session_state.target_allocation[sector]),
-            key=f"target_{sector}"
-        )
-
-def render_settings_tab():
-    """Render settings tab"""
-    st.subheader("⚙️ Settings")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("#### Data Source")
-        use_mock = st.checkbox("Use Mock Data", value=st.session_state.use_mock_data)
-        if use_mock != st.session_state.use_mock_data:
-            st.session_state.use_mock_data = use_mock
-            st.rerun()
-
-        st.markdown("#### Auto-Refresh")
-        refresh_options = ['Off', '10 seconds', '30 seconds', '1 minute']
-        refresh_interval = st.selectbox(
-            "Refresh Interval",
-            refresh_options,
-            index=refresh_options.index(st.session_state.refresh_interval)
-        )
-        if refresh_interval != st.session_state.refresh_interval:
-            st.session_state.refresh_interval = refresh_interval
-
-        st.markdown("#### Cash Balance")
-        new_cash = st.number_input(
-            "Available Cash",
-            min_value=0.0,
-            value=st.session_state.cash_balance,
-            step=100.0
-        )
-        if new_cash != st.session_state.cash_balance:
-            st.session_state.cash_balance = new_cash
-
-    with col2:
-        st.markdown("#### Export Options")
-
-        if st.button("📥 Export Portfolio as CSV", type="primary"):
-            metrics = calculate_portfolio_metrics(st.session_state.portfolio, st.session_state.use_mock_data)
-            df = pd.DataFrame(metrics['holdings'])
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f"portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
-
-        st.markdown("#### Danger Zone")
-        if st.button("🗑️ Clear Portfolio", type="secondary"):
-            if st.checkbox("Are you sure?"):
-                st.session_state.portfolio = []
-                st.success("Portfolio cleared!")
-                st.rerun()
+        output = io.BytesIO()
+        pisa.CreatePDF(html_content, dest=output)
+        return output.getvalue()
+    except Exception as e:
+        st.error(f"PDF generation failed: {str(e)}")
+        return b""
 
 def main():
-    """Main application"""
-    initialize_session_state()
+    st.markdown('<h1 class="main-header">📊 Inclusive Investment Portfolio Builder</h1>', unsafe_allow_html=True)
 
-    refresh_mapping = {
-        'Off': None,
-        '10 seconds': 10,
-        '30 seconds': 30,
-        '1 minute': 60
-    }
+    groq_api_key = os.getenv("GROQ_API_KEY")
 
-    refresh_interval = refresh_mapping.get(st.session_state.refresh_interval)
+    if not groq_api_key:
+        st.warning("⚠️ GROQ_API_KEY not found. AI features will use fallback mode.")
 
-    if refresh_interval:
-        time.sleep(0.1)
-        st.session_state.last_update = datetime.now()
+    st.markdown("---")
+    st.header("🌍 Live Market Overview")
 
-    metrics = calculate_portfolio_metrics(st.session_state.portfolio, st.session_state.use_mock_data)
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🔄 Refresh Data", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
-    render_header(metrics)
+    market_data = fetch_market_data()
+    if market_data:
+        cols = st.columns(6)
+        for idx, (name, data) in enumerate(market_data.items()):
+            with cols[idx % 6]:
+                st.metric(
+                    name,
+                    f"${data['price']:,.2f}",
+                    f"{data['change']:+.2f}%"
+                )
 
-    st.sidebar.title("Navigation")
-    tabs = ["Portfolio", "Watchlist", "Analytics", "Rebalancing", "Settings"]
-    selected_tab = st.sidebar.radio("Go to", tabs)
+    col1, col2 = st.columns(2)
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Quick Actions")
-    if st.sidebar.button("🔄 Refresh Data"):
-        st.cache_data.clear()
-        st.rerun()
+    with col1:
+        st.subheader("📈 Sector Performance")
+        sector_data = fetch_sector_data()
+        if sector_data:
+            sector_df = pd.DataFrame(list(sector_data.items()), columns=['Sector', 'Change %'])
+            sector_df = sector_df.sort_values('Change %', ascending=False)
 
-    if st.sidebar.button("📊 Export All Charts"):
-        st.sidebar.info("Chart export feature - click individual charts to download")
+            fig_sector = px.bar(
+                sector_df,
+                x='Change %',
+                y='Sector',
+                orientation='h',
+                color='Change %',
+                color_continuous_scale=['red', 'yellow', 'green']
+            )
+            fig_sector.update_layout(
+                height=400,
+                paper_bgcolor='#1f2937',
+                plot_bgcolor='#1f2937',
+                font_color='white'
+            )
+            st.plotly_chart(fig_sector, use_container_width=True)
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(f"**Auto-refresh:** {st.session_state.refresh_interval}")
-    st.sidebar.markdown(f"**Data Mode:** {'Mock' if st.session_state.use_mock_data else 'Live'}")
+    with col2:
+        st.subheader("🏢 Top Companies")
+        companies_df = fetch_top_companies()
+        if not companies_df.empty:
+            st.dataframe(companies_df, use_container_width=True, hide_index=True)
 
-    if selected_tab == "Portfolio":
-        render_portfolio_tab(metrics)
-    elif selected_tab == "Watchlist":
-        render_watchlist_tab()
-    elif selected_tab == "Analytics":
-        render_analytics_tab(metrics)
-    elif selected_tab == "Rebalancing":
-        render_rebalancing_tab(metrics)
-    elif selected_tab == "Settings":
-        render_settings_tab()
+    st.subheader("📰 Market News & Sentiment")
+    news = fetch_market_news()
+    sentiment = analyze_news_sentiment(news, groq_api_key)
 
-    st.markdown("""
-    <div class="footer">
-        <p>Data provided by Yahoo Finance | Dashboard built with Streamlit + Plotly</p>
-        <p>© 2025 Real-Time Investment Portfolio Dashboard</p>
-    </div>
-    """, unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.metric("Market Sentiment", sentiment['sentiment'], f"{sentiment['score']}/100")
+        st.caption(sentiment['summary'])
 
-    if refresh_interval:
-        time.sleep(refresh_interval)
-        st.rerun()
+    with col2:
+        if news:
+            with st.expander("View Latest News"):
+                for item in news[:5]:
+                    st.markdown(f"**{item['title']}**")
+                    st.caption(item.get('published', ''))
+                    st.markdown("---")
+
+    st.markdown("---")
+    st.header("🤖 AI-Powered Portfolio Builder")
+
+    if 'wizard_step' not in st.session_state:
+        st.session_state.wizard_step = 1
+    if 'profile_data' not in st.session_state:
+        st.session_state.profile_data = {}
+    if 'selected_tickers' not in st.session_state:
+        st.session_state.selected_tickers = []
+    if 'ai_allocation' not in st.session_state:
+        st.session_state.ai_allocation = None
+    if 'manual_allocation' not in st.session_state:
+        st.session_state.manual_allocation = {}
+
+    progress = st.session_state.wizard_step / 4
+    st.progress(progress)
+    st.caption(f"Step {st.session_state.wizard_step} of 4")
+
+    if st.session_state.wizard_step == 1:
+        st.subheader("Step 1: Investment Profile")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            risk_profile = st.selectbox(
+                "Risk Profile",
+                ["Conservative", "Moderate", "Aggressive"]
+            )
+            capital = st.number_input(
+                "Investment Amount ($)",
+                min_value=1000.0,
+                value=10000.0,
+                step=1000.0
+            )
+
+        with col2:
+            time_horizon = st.slider(
+                "Time Horizon (years)",
+                1, 30, 10
+            )
+            age = st.number_input(
+                "Your Age",
+                min_value=18,
+                max_value=80,
+                value=35
+            )
+
+        if st.button("Next →", type="primary"):
+            st.session_state.profile_data = {
+                'risk_profile': risk_profile,
+                'capital': capital,
+                'time_horizon': time_horizon,
+                'age': age
+            }
+            st.session_state.wizard_step = 2
+            st.rerun()
+
+    elif st.session_state.wizard_step == 2:
+        st.subheader("Step 2: Select Investment Tickers")
+
+        esg_options = ['ESGU', 'SHE', 'SUSA', 'VFTAX', 'NACP']
+        traditional_options = ['SPY', 'QQQ', 'VTI', 'BND', 'GLD', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
+
+        col1, col2 = st.columns(2)
+        with col1:
+            include_esg = st.checkbox("Include ESG/Inclusive Options", value=True)
+            st.caption("ESG: ESGU, SHE, SUSA, VFTAX, NACP")
+
+        with col2:
+            st.caption("Select at least 3 tickers")
+
+        available_tickers = esg_options + traditional_options if include_esg else traditional_options
+
+        selected = st.multiselect(
+            "Choose Tickers",
+            available_tickers,
+            default=available_tickers[:5] if include_esg else traditional_options[:5]
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("← Back"):
+                st.session_state.wizard_step = 1
+                st.rerun()
+
+        with col2:
+            if st.button("Next →", type="primary", disabled=len(selected) < 3):
+                st.session_state.selected_tickers = selected
+                st.session_state.profile_data['esg_enabled'] = include_esg
+                st.session_state.wizard_step = 3
+                st.rerun()
+
+    elif st.session_state.wizard_step == 3:
+        st.subheader("Step 3: AI Recommendation")
+
+        if st.session_state.ai_allocation is None:
+            with st.spinner("Generating AI allocation..."):
+                ai_result = generate_ai_portfolio(
+                    st.session_state.profile_data,
+                    st.session_state.selected_tickers,
+                    st.session_state.profile_data.get('esg_enabled', False),
+                    groq_api_key
+                )
+                st.session_state.ai_allocation = ai_result
+
+        ai_alloc = st.session_state.ai_allocation
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Expected Return", f"{ai_alloc['expected_return']:.2%}")
+        with col2:
+            st.metric("Volatility", f"{ai_alloc['volatility']:.2%}")
+        with col3:
+            st.metric("Diversification", f"{ai_alloc['diversification_index']}/100")
+
+        st.info(f"**AI Commentary:** {ai_alloc['explanation']}")
+
+        fig_pie = plot_allocation_pie(ai_alloc['allocations'])
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+        st.subheader("Adjust Allocation (Optional)")
+        manual_alloc = {}
+
+        for ticker in st.session_state.selected_tickers:
+            default_val = ai_alloc['allocations'].get(ticker, 0)
+            manual_alloc[ticker] = st.slider(
+                f"{ticker} (%)",
+                0.0, 100.0,
+                float(default_val),
+                0.1,
+                key=f"slider_{ticker}"
+            )
+
+        total = sum(manual_alloc.values())
+        if abs(total - 100) > 0.1:
+            st.warning(f"⚠️ Total: {total:.1f}%. Adjust to 100%.")
+        else:
+            st.success(f"✓ Total: {total:.1f}%")
+            st.session_state.manual_allocation = manual_alloc
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("← Back"):
+                st.session_state.wizard_step = 2
+                st.rerun()
+
+        with col2:
+            if st.button("Next →", type="primary", disabled=abs(total - 100) > 0.1):
+                st.session_state.wizard_step = 4
+                st.rerun()
+
+    elif st.session_state.wizard_step == 4:
+        st.subheader("Step 4: Final Review & Analysis")
+
+        final_alloc = st.session_state.manual_allocation if st.session_state.manual_allocation else st.session_state.ai_allocation['allocations']
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Investment", f"${st.session_state.profile_data['capital']:,.0f}")
+        with col2:
+            st.metric("Risk Profile", st.session_state.profile_data['risk_profile'])
+        with col3:
+            st.metric("Time Horizon", f"{st.session_state.profile_data['time_horizon']} years")
+        with col4:
+            st.metric("Assets", len(final_alloc))
+
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📊 Allocation",
+            "📈 Historical",
+            "🎯 Risk/Return",
+            "🔗 Correlation",
+            "📉 Growth"
+        ])
+
+        with tab1:
+            col1, col2 = st.columns(2)
+            with col1:
+                fig_pie = plot_allocation_pie(final_alloc)
+                st.plotly_chart(fig_pie, use_container_width=True)
+            with col2:
+                if st.session_state.manual_allocation:
+                    fig_compare = plot_ai_vs_manual(
+                        st.session_state.ai_allocation['allocations'],
+                        st.session_state.manual_allocation
+                    )
+                    st.plotly_chart(fig_compare, use_container_width=True)
+
+        with tab2:
+            prices_df = fetch_historical_prices(list(final_alloc.keys()))
+            if not prices_df.empty:
+                fig_hist = plot_historical_prices(prices_df)
+                st.plotly_chart(fig_hist, use_container_width=True)
+
+        with tab3:
+            if not prices_df.empty:
+                fig_risk = plot_risk_return_scatter(final_alloc, prices_df)
+                st.plotly_chart(fig_risk, use_container_width=True)
+
+        with tab4:
+            if not prices_df.empty:
+                fig_corr = plot_volatility_heatmap(prices_df)
+                st.plotly_chart(fig_corr, use_container_width=True)
+
+        with tab5:
+            fig_growth = plot_growth_projections(
+                st.session_state.profile_data['capital'],
+                st.session_state.ai_allocation['expected_return'],
+                st.session_state.profile_data['time_horizon']
+            )
+            st.plotly_chart(fig_growth, use_container_width=True)
+
+        st.subheader("📊 Benchmark Comparison")
+        benchmark_ticker = st.selectbox(
+            "Select Benchmark",
+            ["SPY", "ESGU", "^NSEI"],
+            format_func=lambda x: {"SPY": "S&P 500", "ESGU": "ESG S&P 500", "^NSEI": "NIFTY 50"}[x]
+        )
+
+        if not prices_df.empty:
+            fig_bench = plot_benchmark_comparison(final_alloc, prices_df, benchmark_ticker)
+            st.plotly_chart(fig_bench, use_container_width=True)
+
+            if groq_api_key:
+                with st.spinner("Generating AI commentary..."):
+                    try:
+                        client = Groq(api_key=groq_api_key)
+                        prompt = f"""Compare this portfolio to {benchmark_ticker}. Portfolio: {final_alloc}.
+                        Provide 2-3 sentences of professional commentary."""
+
+                        response = client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "user", "content": prompt}],
+                            temperature=0.3
+                        )
+
+                        st.info(f"**AI Commentary:** {response.choices[0].message.content.strip()}")
+                    except:
+                        pass
+
+        st.subheader("📥 Export Options")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            csv_data = pd.DataFrame(list(final_alloc.items()), columns=['Ticker', 'Allocation %'])
+            csv = csv_data.to_csv(index=False)
+            st.download_button(
+                "Download CSV",
+                csv,
+                "portfolio_allocation.csv",
+                "text/csv"
+            )
+
+        with col2:
+            portfolio_data = {
+                'capital': st.session_state.profile_data['capital'],
+                'allocations': final_alloc,
+                'expected_return': st.session_state.ai_allocation['expected_return'],
+                'risk_level': st.session_state.ai_allocation['risk_level'],
+                'diversification_index': st.session_state.ai_allocation['diversification_index'],
+                'explanation': st.session_state.ai_allocation['explanation']
+            }
+
+            pdf_data = generate_pdf_report(portfolio_data, [])
+            if pdf_data:
+                st.download_button(
+                    "Download PDF Report",
+                    pdf_data,
+                    "portfolio_report.pdf",
+                    "application/pdf"
+                )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("← Back"):
+                st.session_state.wizard_step = 3
+                st.rerun()
+
+        with col2:
+            if st.button("🏁 Start New Portfolio", type="primary"):
+                st.session_state.wizard_step = 1
+                st.session_state.profile_data = {}
+                st.session_state.selected_tickers = []
+                st.session_state.ai_allocation = None
+                st.session_state.manual_allocation = {}
+                st.rerun()
 
 if __name__ == "__main__":
     main()
