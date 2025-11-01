@@ -1,3 +1,15 @@
+"""
+Real-Time Investment Portfolio Dashboard
+Built with Streamlit, Plotly, and Yahoo Finance
+
+Requirements:
+streamlit>=1.28.0
+plotly>=5.17.0
+yfinance>=0.2.31
+pandas>=2.0.0
+numpy>=1.24.0
+python-dateutil>=2.8.0
+"""
 
 import streamlit as st
 import plotly.graph_objects as go
@@ -310,24 +322,37 @@ def create_portfolio_performance_chart(holdings_data: List[Dict]) -> go.Figure:
     portfolio_values = []
 
     if holdings_data:
-        min_date = min([h['history'].index.min() for h in holdings_data if not h['history'].empty])
-        date_range = pd.date_range(start=min_date, end=datetime.now(), freq='D')
+        min_dates = [h['history'].index.min() for h in holdings_data if not h['history'].empty]
+        if min_dates:
+            min_date = min(min_dates)
+            if hasattr(min_date, 'tz_localize'):
+                min_date = pd.Timestamp(min_date).tz_localize(None)
+            else:
+                min_date = pd.Timestamp(min_date)
 
-        for date in date_range:
-            daily_value = 0
-            for holding in holdings_data:
-                if not holding['history'].empty:
-                    hist = holding['history']
-                    if date in hist.index:
-                        price = hist.loc[date, 'Close']
-                    elif date < hist.index.min():
-                        price = hist['Close'].iloc[0]
-                    else:
-                        price = hist['Close'].iloc[-1]
-                    daily_value += price * holding['quantity']
+            now = pd.Timestamp.now()
+            date_range = pd.date_range(start=min_date, end=now, freq='D')
 
-            all_dates.append(date)
-            portfolio_values.append(daily_value)
+            for date in date_range:
+                daily_value = 0
+                for holding in holdings_data:
+                    if not holding['history'].empty:
+                        hist = holding['history']
+                        hist_index = hist.index.tz_localize(None) if hasattr(hist.index, 'tz_localize') else hist.index
+
+                        try:
+                            if date in hist_index:
+                                price = hist.iloc[(hist_index == date).argmax()]['Close']
+                            elif date < hist_index.min():
+                                price = hist['Close'].iloc[0]
+                            else:
+                                price = hist['Close'].iloc[-1]
+                            daily_value += price * holding['quantity']
+                        except:
+                            daily_value += hist['Close'].iloc[-1] * holding['quantity']
+
+                all_dates.append(date)
+                portfolio_values.append(daily_value)
 
     fig = go.Figure()
 
