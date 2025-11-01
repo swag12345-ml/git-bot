@@ -8,6 +8,7 @@ numpy
 pillow
 dnspython
 yfinance
+feedparser
 matplotlib
 pytz
 pdfkit
