@@ -11,7 +11,6 @@ import os
 import json
 import sys
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -20,18 +19,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
-
-try:
-    import yfinance as yf
-    YFINANCE_AVAILABLE = True
-except ImportError:
-    YFINANCE_AVAILABLE = False
-
-try:
-    import feedparser
-    FEEDPARSER_AVAILABLE = True
-except ImportError:
-    FEEDPARSER_AVAILABLE = False
+import yfinance as yf
+import feedparser
+from datetime import datetime, timedelta
 
 # Test mode check
 TEST_MODE = "--test" in sys.argv
@@ -1489,369 +1479,359 @@ class FinancialFlows:
 
     @staticmethod
     def demo_dashboard():
-        """Advanced Demo Dashboard with Real-Time Market Data."""
+        """Advanced Real-Time Market Dashboard with Live Stock Data."""
         if not TEST_MODE:
-            st.markdown('<div class="flow-card"><h2>📊 Advanced Market Dashboard</h2><p>Real-time market data, technical indicators, and financial news powered by Yahoo Finance.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="flow-card"><h2>📊 Real-Time Market Dashboard</h2><p>Live market data powered by Yahoo Finance with comprehensive stock analysis, global commodities, and financial news.</p></div>', unsafe_allow_html=True)
 
-            if not YFINANCE_AVAILABLE:
-                st.error("📦 yfinance library is not installed. Install it with: pip install yfinance")
-                return
+            if st.button("🔄 Refresh Dashboard"):
+                st.rerun()
 
-            st.markdown("### Step 1: Dashboard Controls")
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            st.markdown("---")
+
+            st.subheader("Step 1: Controls & Settings")
+            col1, col2, col3 = st.columns(3)
 
             with col1:
                 default_tickers = "AAPL,MSFT,TSLA,AMZN,GOOGL"
-                tickers_input = st.text_input("Enter Stock Tickers (comma-separated)", value=default_tickers)
-                tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+                ticker_input = st.text_input("Enter Stock Tickers (comma-separated)", default_tickers)
+                tickers = [t.strip().upper() for t in ticker_input.split(",")]
 
             with col2:
-                timeframe = st.selectbox("Timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=3)
+                timeframe = st.selectbox("Timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y"], index=3)
 
             with col3:
-                show_advanced = st.checkbox("Show Advanced Indicators", value=True)
-
-            with col4:
-                if st.button("🔄 Refresh", type="primary"):
-                    st.rerun()
-
-            if not tickers:
-                st.warning("Please enter at least one ticker symbol.")
-                return
+                show_indicators = st.checkbox("Show Technical Indicators", value=True)
 
             st.markdown("---")
 
-            st.markdown("### Step 2: Market Overview")
+            st.subheader("Step 2: Market Overview")
 
-            with st.spinner("Fetching real-time market data..."):
-                market_data = {}
-                for ticker in tickers:
-                    try:
-                        stock = yf.Ticker(ticker)
-                        info = stock.info
-                        hist = stock.history(period="2d")
-
-                        if not hist.empty and len(hist) >= 2:
-                            current_price = hist['Close'].iloc[-1]
-                            prev_price = hist['Close'].iloc[-2] if len(hist) >= 2 else current_price
-                            change = current_price - prev_price
-                            pct_change = (change / prev_price * 100) if prev_price != 0 else 0
-
-                            market_data[ticker] = {
-                                'price': current_price,
-                                'change': change,
-                                'pct_change': pct_change,
-                                'volume': hist['Volume'].iloc[-1] if 'Volume' in hist.columns else 0,
-                                'market_cap': info.get('marketCap', 0),
-                                'name': info.get('longName', ticker)
-                            }
-                    except Exception as e:
-                        st.warning(f"Could not fetch data for {ticker}: {str(e)}")
-                        continue
-
-            if not market_data:
-                st.error("No market data available. Please check your ticker symbols.")
-                return
-
-            cols = st.columns(min(len(market_data), 5))
-            for idx, (ticker, data) in enumerate(market_data.items()):
-                with cols[idx % 5]:
-                    change_color = 'green' if data['pct_change'] >= 0 else 'red'
-                    change_symbol = '▲' if data['pct_change'] >= 0 else '▼'
-                    st.markdown(display_metric_card(
-                        ticker,
-                        f"${data['price']:.2f}",
-                        f"{change_symbol} {data['pct_change']:.2f}%",
-                        color=change_color
-                    ), unsafe_allow_html=True)
-
-            st.markdown("---")
-
-            st.markdown("### Step 3: Top Movers")
-            col1, col2 = st.columns(2)
-
-            sorted_gainers = sorted(market_data.items(), key=lambda x: x[1]['pct_change'], reverse=True)
-            sorted_losers = sorted(market_data.items(), key=lambda x: x[1]['pct_change'])
-
-            with col1:
-                st.markdown("#### 🚀 Top Gainers")
-                gainers_data = []
-                for ticker, data in sorted_gainers[:5]:
-                    gainers_data.append({
-                        'Ticker': ticker,
-                        'Price': f"${data['price']:.2f}",
-                        'Change': f"+{data['pct_change']:.2f}%",
-                        'Volume': f"{data['volume']:,.0f}"
-                    })
-                if gainers_data:
-                    st.dataframe(pd.DataFrame(gainers_data), use_container_width=True, hide_index=True)
-
-            with col2:
-                st.markdown("#### 📉 Top Losers")
-                losers_data = []
-                for ticker, data in sorted_losers[:5]:
-                    losers_data.append({
-                        'Ticker': ticker,
-                        'Price': f"${data['price']:.2f}",
-                        'Change': f"{data['pct_change']:.2f}%",
-                        'Volume': f"{data['volume']:,.0f}"
-                    })
-                if losers_data:
-                    st.dataframe(pd.DataFrame(losers_data), use_container_width=True, hide_index=True)
-
-            st.markdown("---")
-
-            st.markdown("### Step 4: High vs Low Comparison")
-
-            high_low_data = []
+            stock_data = {}
             for ticker in tickers:
                 try:
                     stock = yf.Ticker(ticker)
-                    hist = stock.history(period=timeframe)
-                    if not hist.empty:
-                        high_low_data.append({
-                            'Ticker': ticker,
-                            'High': hist['High'].max(),
-                            'Low': hist['Low'].min(),
-                            'Current': hist['Close'].iloc[-1]
-                        })
-                except:
-                    continue
+                    info = stock.info
+                    hist = stock.history(period="5d")
 
-            if high_low_data:
-                df_hl = pd.DataFrame(high_low_data)
+                    if not hist.empty and len(hist) >= 2:
+                        current_price = hist['Close'].iloc[-1]
+                        prev_price = hist['Close'].iloc[-2]
+                        change_pct = ((current_price - prev_price) / prev_price) * 100
+                        volume = hist['Volume'].iloc[-1]
+                        market_cap = info.get('marketCap', 0)
+                        high = hist['High'].iloc[-1]
+                        low = hist['Low'].iloc[-1]
 
-                fig_hl = go.Figure()
-                fig_hl.add_trace(go.Bar(
-                    x=df_hl['Ticker'],
-                    y=df_hl['High'],
-                    name='High',
-                    marker_color='#10b981'
-                ))
-                fig_hl.add_trace(go.Bar(
-                    x=df_hl['Ticker'],
-                    y=df_hl['Low'],
-                    name='Low',
-                    marker_color='#ef4444'
-                ))
-                fig_hl.add_trace(go.Scatter(
-                    x=df_hl['Ticker'],
-                    y=df_hl['Current'],
-                    name='Current Price',
-                    mode='markers',
-                    marker=dict(size=15, color='#3b82f6', symbol='diamond')
-                ))
+                        stock_data[ticker] = {
+                            'price': current_price,
+                            'change_pct': change_pct,
+                            'volume': volume,
+                            'market_cap': market_cap,
+                            'high': high,
+                            'low': low,
+                            'info': info,
+                            'hist': hist
+                        }
+                except Exception as e:
+                    st.warning(f"Could not fetch data for {ticker}: {str(e)}")
 
-                fig_hl.update_layout(
-                    title=f"High vs Low Price Comparison ({timeframe})",
-                    xaxis_title="Ticker",
-                    yaxis_title="Price ($)",
-                    barmode='group',
-                    height=450,
-                    paper_bgcolor='#1f2937',
-                    plot_bgcolor='#1f2937',
-                    font_color='white',
-                    showlegend=True
-                )
-
-                st.plotly_chart(fig_hl, use_container_width=True, config={"displayModeBar": False})
+            if stock_data:
+                cols = st.columns(len(stock_data))
+                for idx, (ticker, data) in enumerate(stock_data.items()):
+                    with cols[idx]:
+                        color = 'green' if data['change_pct'] >= 0 else 'red'
+                        st.markdown(display_metric_card(
+                            ticker,
+                            f"${data['price']:.2f}",
+                            f"{data['change_pct']:+.2f}%",
+                            color=color
+                        ), unsafe_allow_html=True)
 
             st.markdown("---")
 
-            st.markdown("### Step 5: Detailed Stock Analysis")
+            st.subheader("Step 3: Top Gainers & Losers")
 
-            selected_ticker = st.selectbox("Select Ticker for Detailed Analysis", tickers)
+            if stock_data:
+                sorted_by_change = sorted(stock_data.items(), key=lambda x: x[1]['change_pct'], reverse=True)
 
-            if selected_ticker:
-                try:
-                    stock = yf.Ticker(selected_ticker)
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("#### 🟢 Top Gainers")
+                    gainers_data = []
+                    for ticker, data in sorted_by_change[:3]:
+                        if data['change_pct'] >= 0:
+                            gainers_data.append({
+                                'Ticker': ticker,
+                                'Price': f"${data['price']:.2f}",
+                                'Change': f"+{data['change_pct']:.2f}%",
+                                'Volume': f"{data['volume']:,.0f}"
+                            })
+                    if gainers_data:
+                        st.dataframe(pd.DataFrame(gainers_data), use_container_width=True, hide_index=True)
+
+                with col2:
+                    st.markdown("#### 🔴 Top Losers")
+                    losers_data = []
+                    for ticker, data in reversed(sorted_by_change[-3:]):
+                        if data['change_pct'] < 0:
+                            losers_data.append({
+                                'Ticker': ticker,
+                                'Price': f"${data['price']:.2f}",
+                                'Change': f"{data['change_pct']:.2f}%",
+                                'Volume': f"{data['volume']:,.0f}"
+                            })
+                    if losers_data:
+                        st.dataframe(pd.DataFrame(losers_data), use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+
+            st.subheader("Step 4: Same Companies Comparison")
+
+            if stock_data:
+                comparison_data = []
+                for ticker, data in stock_data.items():
+                    comparison_data.append({
+                        'Ticker': ticker,
+                        'Current Price': data['price'],
+                        '% Change': data['change_pct'],
+                        'High': data['high'],
+                        'Low': data['low'],
+                        'Market Cap': data['market_cap']
+                    })
+
+                comparison_df = pd.DataFrame(comparison_data)
+
+                fig_comparison = go.Figure()
+                fig_comparison.add_trace(go.Bar(
+                    x=comparison_df['Ticker'],
+                    y=comparison_df['% Change'],
+                    marker_color=['green' if x >= 0 else 'red' for x in comparison_df['% Change']],
+                    text=comparison_df['% Change'].apply(lambda x: f"{x:+.2f}%"),
+                    textposition='outside',
+                    name='% Change'
+                ))
+
+                fig_comparison.update_layout(
+                    title="Stock Performance Comparison",
+                    xaxis_title="Ticker",
+                    yaxis_title="% Change",
+                    height=400,
+                    paper_bgcolor='#1f2937',
+                    plot_bgcolor='#1f2937',
+                    font_color='white',
+                    showlegend=False
+                )
+
+                st.plotly_chart(fig_comparison, use_container_width=True, config={"displayModeBar": False})
+
+                st.dataframe(comparison_df.style.format({
+                    'Current Price': '${:.2f}',
+                    '% Change': '{:+.2f}%',
+                    'High': '${:.2f}',
+                    'Low': '${:.2f}',
+                    'Market Cap': '${:,.0f}'
+                }), use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+
+            st.subheader("Step 5: Stock Analysis with Technical Indicators")
+
+            if stock_data:
+                selected_stock = st.selectbox("Select Stock for Detailed Analysis", list(stock_data.keys()))
+
+                if selected_stock:
+                    stock = yf.Ticker(selected_stock)
                     hist = stock.history(period=timeframe)
 
                     if not hist.empty:
-                        st.markdown(f"#### {selected_ticker} - Candlestick Chart with Volume")
-
-                        fig_candlestick = make_subplots(
-                            rows=2, cols=1,
+                        fig = make_subplots(
+                            rows=4, cols=1,
                             shared_xaxes=True,
-                            vertical_spacing=0.03,
-                            row_heights=[0.7, 0.3],
-                            subplot_titles=(f'{selected_ticker} Price Action', 'Volume')
+                            vertical_spacing=0.05,
+                            row_heights=[0.5, 0.2, 0.15, 0.15],
+                            subplot_titles=(f'{selected_stock} Candlestick Chart', 'Volume', 'RSI', 'MACD')
                         )
 
-                        fig_candlestick.add_trace(
-                            go.Candlestick(
-                                x=hist.index,
-                                open=hist['Open'],
-                                high=hist['High'],
-                                low=hist['Low'],
-                                close=hist['Close'],
-                                name='Price'
-                            ),
-                            row=1, col=1
-                        )
+                        fig.add_trace(go.Candlestick(
+                            x=hist.index,
+                            open=hist['Open'],
+                            high=hist['High'],
+                            low=hist['Low'],
+                            close=hist['Close'],
+                            name='Candlestick'
+                        ), row=1, col=1)
 
-                        if show_advanced:
-                            hist['SMA_20'] = hist['Close'].rolling(window=20).mean()
-                            hist['SMA_50'] = hist['Close'].rolling(window=50).mean()
-                            hist['EMA_12'] = hist['Close'].ewm(span=12, adjust=False).mean()
-                            hist['EMA_26'] = hist['Close'].ewm(span=26, adjust=False).mean()
+                        if show_indicators and len(hist) >= 20:
+                            sma_20 = hist['Close'].rolling(window=20).mean()
+                            sma_50 = hist['Close'].rolling(window=50).mean()
 
-                            fig_candlestick.add_trace(
-                                go.Scatter(x=hist.index, y=hist['SMA_20'], name='SMA 20',
-                                          line=dict(color='#f59e0b', width=2)),
-                                row=1, col=1
-                            )
-                            fig_candlestick.add_trace(
-                                go.Scatter(x=hist.index, y=hist['SMA_50'], name='SMA 50',
-                                          line=dict(color='#3b82f6', width=2)),
-                                row=1, col=1
-                            )
+                            fig.add_trace(go.Scatter(
+                                x=hist.index, y=sma_20,
+                                mode='lines', name='SMA 20',
+                                line=dict(color='orange', width=1)
+                            ), row=1, col=1)
 
-                            rolling_mean = hist['Close'].rolling(window=20).mean()
-                            rolling_std = hist['Close'].rolling(window=20).std()
-                            hist['BB_upper'] = rolling_mean + (rolling_std * 2)
-                            hist['BB_lower'] = rolling_mean - (rolling_std * 2)
+                            if len(hist) >= 50:
+                                fig.add_trace(go.Scatter(
+                                    x=hist.index, y=sma_50,
+                                    mode='lines', name='SMA 50',
+                                    line=dict(color='blue', width=1)
+                                ), row=1, col=1)
 
-                            fig_candlestick.add_trace(
-                                go.Scatter(x=hist.index, y=hist['BB_upper'], name='BB Upper',
-                                          line=dict(color='#8b5cf6', width=1, dash='dash')),
-                                row=1, col=1
-                            )
-                            fig_candlestick.add_trace(
-                                go.Scatter(x=hist.index, y=hist['BB_lower'], name='BB Lower',
-                                          line=dict(color='#8b5cf6', width=1, dash='dash')),
-                                row=1, col=1
-                            )
+                            ema_12 = hist['Close'].ewm(span=12).mean()
+                            ema_26 = hist['Close'].ewm(span=26).mean()
 
-                        colors = ['#10b981' if row['Close'] >= row['Open'] else '#ef4444'
-                                 for idx, row in hist.iterrows()]
+                            fig.add_trace(go.Scatter(
+                                x=hist.index, y=ema_12,
+                                mode='lines', name='EMA 12',
+                                line=dict(color='cyan', width=1, dash='dash')
+                            ), row=1, col=1)
 
-                        fig_candlestick.add_trace(
-                            go.Bar(x=hist.index, y=hist['Volume'], name='Volume', marker_color=colors),
-                            row=2, col=1
-                        )
+                            bb_mid = hist['Close'].rolling(window=20).mean()
+                            bb_std = hist['Close'].rolling(window=20).std()
+                            bb_upper = bb_mid + (bb_std * 2)
+                            bb_lower = bb_mid - (bb_std * 2)
 
-                        fig_candlestick.update_layout(
-                            height=700,
-                            paper_bgcolor='#1f2937',
-                            plot_bgcolor='#1f2937',
-                            font_color='white',
-                            xaxis_rangeslider_visible=False,
-                            showlegend=True
-                        )
+                            fig.add_trace(go.Scatter(
+                                x=hist.index, y=bb_upper,
+                                mode='lines', name='BB Upper',
+                                line=dict(color='gray', width=1, dash='dot')
+                            ), row=1, col=1)
 
-                        fig_candlestick.update_xaxes(gridcolor='#374151')
-                        fig_candlestick.update_yaxes(gridcolor='#374151')
-
-                        st.plotly_chart(fig_candlestick, use_container_width=True, config={"displayModeBar": False})
-
-                        if show_advanced:
-                            st.markdown("#### Technical Indicators")
+                            fig.add_trace(go.Scatter(
+                                x=hist.index, y=bb_lower,
+                                mode='lines', name='BB Lower',
+                                line=dict(color='gray', width=1, dash='dot'),
+                                fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
+                            ), row=1, col=1)
 
                             delta = hist['Close'].diff()
                             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
                             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
                             rs = gain / loss
-                            hist['RSI'] = 100 - (100 / (1 + rs))
+                            rsi = 100 - (100 / (1 + rs))
 
-                            fig_rsi = go.Figure()
-                            fig_rsi.add_trace(go.Scatter(
-                                x=hist.index,
-                                y=hist['RSI'],
-                                name='RSI',
-                                line=dict(color='#3b82f6', width=2)
-                            ))
+                            fig.add_trace(go.Scatter(
+                                x=hist.index, y=rsi,
+                                mode='lines', name='RSI',
+                                line=dict(color='purple', width=2)
+                            ), row=3, col=1)
 
-                            fig_rsi.add_hline(y=70, line_dash="dash", line_color="#ef4444",
-                                            annotation_text="Overbought (70)")
-                            fig_rsi.add_hline(y=30, line_dash="dash", line_color="#10b981",
-                                            annotation_text="Oversold (30)")
+                            fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
+                            fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
 
-                            fig_rsi.update_layout(
-                                title="Relative Strength Index (RSI)",
-                                xaxis_title="Date",
-                                yaxis_title="RSI",
-                                height=350,
-                                paper_bgcolor='#1f2937',
-                                plot_bgcolor='#1f2937',
-                                font_color='white',
-                                yaxis=dict(range=[0, 100])
-                            )
+                            macd_line = ema_12 - ema_26
+                            signal_line = macd_line.ewm(span=9).mean()
+                            macd_histogram = macd_line - signal_line
 
-                            fig_rsi.update_xaxes(gridcolor='#374151')
-                            fig_rsi.update_yaxes(gridcolor='#374151')
+                            fig.add_trace(go.Scatter(
+                                x=hist.index, y=macd_line,
+                                mode='lines', name='MACD',
+                                line=dict(color='blue', width=2)
+                            ), row=4, col=1)
 
-                            st.plotly_chart(fig_rsi, use_container_width=True, config={"displayModeBar": False})
+                            fig.add_trace(go.Scatter(
+                                x=hist.index, y=signal_line,
+                                mode='lines', name='Signal',
+                                line=dict(color='red', width=2)
+                            ), row=4, col=1)
 
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                current_rsi = hist['RSI'].iloc[-1]
-                                rsi_color = '#ef4444' if current_rsi > 70 else '#10b981' if current_rsi < 30 else '#3b82f6'
-                                st.markdown(display_metric_card(
-                                    "Current RSI",
-                                    f"{current_rsi:.2f}",
-                                    "Momentum Indicator",
-                                    color=rsi_color
-                                ), unsafe_allow_html=True)
+                            fig.add_trace(go.Bar(
+                                x=hist.index, y=macd_histogram,
+                                name='MACD Histogram',
+                                marker_color=['green' if val >= 0 else 'red' for val in macd_histogram]
+                            ), row=4, col=1)
 
-                            with col2:
-                                current_sma20 = hist['SMA_20'].iloc[-1]
-                                st.markdown(display_metric_card(
-                                    "SMA 20",
-                                    f"${current_sma20:.2f}",
-                                    "Short-term Trend"
-                                ), unsafe_allow_html=True)
+                        colors = ['red' if row['Open'] > row['Close'] else 'green' for _, row in hist.iterrows()]
+                        fig.add_trace(go.Bar(
+                            x=hist.index,
+                            y=hist['Volume'],
+                            marker_color=colors,
+                            name='Volume',
+                            showlegend=False
+                        ), row=2, col=1)
 
-                            with col3:
-                                current_sma50 = hist['SMA_50'].iloc[-1]
-                                st.markdown(display_metric_card(
-                                    "SMA 50",
-                                    f"${current_sma50:.2f}",
-                                    "Medium-term Trend"
-                                ), unsafe_allow_html=True)
+                        fig.update_layout(
+                            height=1000,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#1f2937',
+                            font_color='white',
+                            xaxis_rangeslider_visible=False,
+                            showlegend=True,
+                            legend=dict(x=0, y=1, orientation='h')
+                        )
 
-                            with col4:
-                                volatility = hist['Close'].pct_change().std() * 100
-                                st.markdown(display_metric_card(
-                                    "Volatility",
-                                    f"{volatility:.2f}%",
-                                    "Price Fluctuation"
-                                ), unsafe_allow_html=True)
+                        fig.update_yaxes(title_text="Price", row=1, col=1)
+                        fig.update_yaxes(title_text="Volume", row=2, col=1)
+                        fig.update_yaxes(title_text="RSI", row=3, col=1)
+                        fig.update_yaxes(title_text="MACD", row=4, col=1)
 
-                except Exception as e:
-                    st.error(f"Error analyzing {selected_ticker}: {str(e)}")
+                        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
 
-            st.markdown("### Step 6: Market News Feed")
+            st.subheader("Step 6: Global Market Rates")
 
-            if FEEDPARSER_AVAILABLE:
+            commodities = {
+                'Gold (XAU/USD)': 'GC=F',
+                'Silver (XAG/USD)': 'SI=F',
+                'Crude Oil (WTI)': 'CL=F',
+                'USD/INR': 'INR=X'
+            }
+
+            commodity_data = {}
+            for name, symbol in commodities.items():
                 try:
-                    with st.spinner("Fetching latest financial news..."):
-                        feed = feedparser.parse("https://finance.yahoo.com/news/rssindex")
+                    ticker = yf.Ticker(symbol)
+                    hist = ticker.history(period="5d")
 
-                        if feed.entries:
-                            st.markdown("#### 📰 Latest Yahoo Finance Headlines")
+                    if not hist.empty and len(hist) >= 2:
+                        current_price = hist['Close'].iloc[-1]
+                        prev_price = hist['Close'].iloc[-2]
+                        change_pct = ((current_price - prev_price) / prev_price) * 100
 
-                            for idx, entry in enumerate(feed.entries[:10]):
-                                title = entry.get('title', 'No Title')
-                                link = entry.get('link', '#')
-                                published = entry.get('published', 'Unknown Date')
-
-                                st.markdown(f'''
-                                <div class="metric-card" style="margin-bottom: 15px;">
-                                    <h4 style="margin-bottom: 8px;">{idx + 1}. {title}</h4>
-                                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;">{published}</p>
-                                    <a href="{link}" target="_blank" style="color: #3b82f6; text-decoration: none;">Read more →</a>
-                                </div>
-                                ''', unsafe_allow_html=True)
-                        else:
-                            st.info("No news items available at this time.")
-
+                        commodity_data[name] = {
+                            'price': current_price,
+                            'change_pct': change_pct
+                        }
                 except Exception as e:
-                    st.warning(f"Could not fetch news feed: {str(e)}")
-            else:
-                st.info("📦 Install feedparser to see market news: pip install feedparser")
+                    st.warning(f"Could not fetch data for {name}: {str(e)}")
+
+            if commodity_data:
+                cols = st.columns(len(commodity_data))
+                for idx, (name, data) in enumerate(commodity_data.items()):
+                    with cols[idx]:
+                        color = 'green' if data['change_pct'] >= 0 else 'red'
+                        st.markdown(display_metric_card(
+                            name,
+                            f"${data['price']:.2f}",
+                            f"{data['change_pct']:+.2f}%",
+                            color=color
+                        ), unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            st.subheader("Step 7: Yahoo Finance News Feed")
+
+            try:
+                feed_url = "https://finance.yahoo.com/news/rssindex"
+                feed = feedparser.parse(feed_url)
+
+                if feed.entries:
+                    st.markdown("#### Latest Financial News")
+                    for entry in feed.entries[:10]:
+                        st.markdown(f'''
+                        <div class="metric-card">
+                            <h4>{entry.title}</h4>
+                            <p>{entry.summary if hasattr(entry, 'summary') else ''}</p>
+                            <p><a href="{entry.link}" target="_blank" style="color:#3b82f6;">Read more →</a></p>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                else:
+                    st.info("No news items available at the moment.")
+            except Exception as e:
+                st.warning(f"Could not fetch news feed: {str(e)}")
 
     @staticmethod
     def budgeting_flow():
