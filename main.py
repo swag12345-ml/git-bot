@@ -3,7 +3,7 @@ AI Financial Advisor Application - LLAMA 3.3
 A comprehensive financial planning tool with AI-powered insights
 
 Required pip packages:
-pip install streamlit plotly pandas numpy python-dotenv langchain-groq
+pip install streamlit plotly pandas numpy python-dotenv langchain-groq yfinance
 """
 
 import streamlit as st
@@ -11,6 +11,7 @@ import os
 import json
 import sys
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -19,9 +20,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
-import yfinance as yf
-import json
-import time
+
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+except ImportError:
+    YFINANCE_AVAILABLE = False
 
 # Test mode check
 TEST_MODE = "--test" in sys.argv
@@ -290,16 +294,6 @@ if not TEST_MODE:
 # Load environment variables
 load_dotenv()
 working_dir = os.path.dirname(os.path.abspath(__file__))
-
-def get_market_snapshot():
-    tickers = {"S&P 500":"^GSPC","Bonds":"IEF","Gold":"GLD","Bitcoin":"BTC-USD","Ethereum":"ETH-USD"}
-    snap={}
-    for n,s in tickers.items():
-        try:
-            d=yf.Ticker(s).history(period="5d")["Close"]
-            snap[n]=round((d.iloc[-1]-d.iloc[0])/d.iloc[0]*100,2)
-        except Exception: snap[n]=0.0
-    return snap
 
 def load_groq_api_key():
     """
@@ -1484,8 +1478,510 @@ class FinancialVisualizer:
 
         return fig
 
+class MarketDataFetcher:
+    """Fetch real-time market data using yfinance"""
+
+    @staticmethod
+    @st.cache_data(ttl=60)
+    def get_market_data(ticker: str, period: str = "1d") -> Dict[str, Any]:
+        """Fetch real-time market data for a ticker"""
+        if not YFINANCE_AVAILABLE:
+            return {"error": "yfinance not available"}
+
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period=period)
+
+            if hist.empty:
+                return {"error": f"No data for {ticker}"}
+
+            current_price = hist['Close'].iloc[-1]
+            prev_price = hist['Close'].iloc[0] if len(hist) > 1 else current_price
+            change = current_price - prev_price
+            change_pct = (change / prev_price * 100) if prev_price != 0 else 0
+
+            return {
+                "ticker": ticker,
+                "price": current_price,
+                "change": change,
+                "change_pct": change_pct,
+                "history": hist,
+                "volume": hist['Volume'].iloc[-1] if 'Volume' in hist.columns else 0
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @staticmethod
+    @st.cache_data(ttl=60)
+    def get_multiple_tickers(tickers: List[str]) -> Dict[str, Any]:
+        """Fetch data for multiple tickers"""
+        results = {}
+        for ticker in tickers:
+            results[ticker] = MarketDataFetcher.get_market_data(ticker, "1d")
+        return results
+
+    @staticmethod
+    def get_sparkline_data(ticker: str, period: str = "5d") -> List[float]:
+        """Get sparkline data for mini charts"""
+        if not YFINANCE_AVAILABLE:
+            return []
+
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period=period)
+            return hist['Close'].tolist() if not hist.empty else []
+        except:
+            return []
+
 class FinancialFlows:
     """Structured financial advisory flows with step-by-step guidance"""
+
+    @staticmethod
+    def investment_portfolio_dashboard():
+        """Real-time interactive financial intelligence dashboard"""
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h2>📈 Live Market Intelligence Dashboard</h2><p>Real-time market data, AI insights, and portfolio analysis powered by LLaMA 3.3</p></div>', unsafe_allow_html=True)
+
+            if not YFINANCE_AVAILABLE:
+                st.error("📊 yfinance package is required for live market data. Install with: pip install yfinance")
+                st.info("Showing demo mode with sample data...")
+
+            tab1, tab2, tab3, tab4 = st.tabs(["📈 Live Market", "💼 Portfolio Builder", "🤖 AI Insights", "📰 Market News"])
+
+            with tab1:
+                st.markdown("### 🌎 Global Market Overview")
+                st.caption("Auto-refreshes every 60 seconds")
+
+                major_indices = {
+                    "^GSPC": "S&P 500",
+                    "^IXIC": "NASDAQ",
+                    "GC=F": "Gold",
+                    "BTC-USD": "Bitcoin",
+                    "^TNX": "10Y Treasury"
+                }
+
+                if YFINANCE_AVAILABLE:
+                    market_data = MarketDataFetcher.get_multiple_tickers(list(major_indices.keys()))
+
+                    cols = st.columns(5)
+                    up_count = 0
+                    total_count = 0
+
+                    for idx, (ticker, name) in enumerate(major_indices.items()):
+                        data = market_data.get(ticker, {})
+                        if "error" not in data:
+                            total_count += 1
+                            if data['change_pct'] > 0:
+                                up_count += 1
+
+                            with cols[idx]:
+                                change_icon = "▲" if data['change_pct'] >= 0 else "▼"
+                                change_color = "#4ade80" if data['change_pct'] >= 0 else "#ef4444"
+
+                                sparkline_data = MarketDataFetcher.get_sparkline_data(ticker, "5d")
+
+                                st.markdown(f'''
+                                <div class="metric-card" style="border-left-color: {change_color};">
+                                    <h4 style="font-size: 0.9rem; margin-bottom: 0.5rem;">{name}</h4>
+                                    <h2 style="font-size: 1.5rem; margin: 0.3rem 0;">${data['price']:,.2f}</h2>
+                                    <p style="color: {change_color}; font-weight: bold;">
+                                        {change_icon} {data['change_pct']:.2f}%
+                                    </p>
+                                </div>
+                                ''', unsafe_allow_html=True)
+
+                                if sparkline_data:
+                                    fig_spark = go.Figure()
+                                    fig_spark.add_trace(go.Scatter(
+                                        y=sparkline_data,
+                                        mode='lines',
+                                        line=dict(color=change_color, width=2),
+                                        fill='tozeroy',
+                                        fillcolor=f'rgba({",".join(str(int(change_color[i:i+2], 16)) for i in (1, 3, 5))}, 0.2)'
+                                    ))
+                                    fig_spark.update_layout(
+                                        height=80,
+                                        margin=dict(l=0, r=0, t=0, b=0),
+                                        paper_bgcolor='rgba(0,0,0,0)',
+                                        plot_bgcolor='rgba(0,0,0,0)',
+                                        xaxis=dict(visible=False),
+                                        yaxis=dict(visible=False),
+                                        showlegend=False
+                                    )
+                                    st.plotly_chart(fig_spark, use_container_width=True, config={"displayModeBar": False})
+                        else:
+                            with cols[idx]:
+                                st.markdown(f'''
+                                <div class="metric-card">
+                                    <h4>{name}</h4>
+                                    <p style="color: #9ca3af;">Data unavailable</p>
+                                </div>
+                                ''', unsafe_allow_html=True)
+
+                    st.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
+
+                    sentiment_pct = (up_count / total_count * 100) if total_count > 0 else 50
+                    col_gauge1, col_gauge2, col_gauge3 = st.columns([1, 2, 1])
+                    with col_gauge2:
+                        st.markdown("### 🌎 Global Market Sentiment")
+                        fig_sentiment = go.Figure(go.Indicator(
+                            mode="gauge+number+delta",
+                            value=sentiment_pct,
+                            title={'text': "<b>Bullish Assets</b>", 'font': {'size': 20, 'color': 'white'}},
+                            number={'suffix': "%", 'font': {'size': 40, 'color': 'white'}},
+                            gauge={
+                                'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': 'white'},
+                                'bar': {'color': '#4ade80' if sentiment_pct >= 50 else '#ef4444', 'thickness': 0.6},
+                                'steps': [
+                                    {'range': [0, 33], 'color': '#991b1b'},
+                                    {'range': [33, 66], 'color': '#d1d5db'},
+                                    {'range': [66, 100], 'color': '#065f46'}
+                                ],
+                                'threshold': {
+                                    'line': {'color': 'white', 'width': 3},
+                                    'thickness': 0.8,
+                                    'value': 50
+                                }
+                            }
+                        ))
+                        fig_sentiment.update_layout(
+                            height=350,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#1f2937',
+                            font_color='white',
+                            margin=dict(t=60, b=40, l=40, r=40)
+                        )
+                        st.plotly_chart(fig_sentiment, use_container_width=True, config={"displayModeBar": False})
+
+                    st.markdown("<div style='margin-top:40px;'></div>", unsafe_allow_html=True)
+                    st.markdown("### 📊 Market Trends & Charts")
+
+                    chart_tab1, chart_tab2, chart_tab3 = st.tabs(["📈 Stocks", "₿ Crypto", "🏅 Commodities"])
+
+                    with chart_tab1:
+                        period_stocks = st.selectbox("Time Period", ["1D", "5D", "1M", "6M", "1Y"], key="stocks_period")
+                        period_map = {"1D": "1d", "5D": "5d", "1M": "1mo", "6M": "6mo", "1Y": "1y"}
+
+                        stock_tickers = ["^GSPC", "^IXIC", "^DJI"]
+                        stock_names = ["S&P 500", "NASDAQ", "Dow Jones"]
+
+                        fig_stocks = go.Figure()
+                        for ticker, name in zip(stock_tickers, stock_names):
+                            data = MarketDataFetcher.get_market_data(ticker, period_map[period_stocks])
+                            if "error" not in data and not data['history'].empty:
+                                fig_stocks.add_trace(go.Scatter(
+                                    x=data['history'].index,
+                                    y=data['history']['Close'],
+                                    name=name,
+                                    mode='lines',
+                                    line=dict(width=2)
+                                ))
+
+                        fig_stocks.update_layout(
+                            title="Major Stock Indices",
+                            height=450,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#0e1117',
+                            font_color='white',
+                            hovermode='x unified',
+                            xaxis=dict(gridcolor='#374151'),
+                            yaxis=dict(gridcolor='#374151')
+                        )
+                        st.plotly_chart(fig_stocks, use_container_width=True)
+
+                    with chart_tab2:
+                        period_crypto = st.selectbox("Time Period", ["1D", "5D", "1M", "6M", "1Y"], key="crypto_period")
+                        crypto_tickers = ["BTC-USD", "ETH-USD"]
+                        crypto_names = ["Bitcoin", "Ethereum"]
+
+                        fig_crypto = go.Figure()
+                        for ticker, name in zip(crypto_tickers, crypto_names):
+                            data = MarketDataFetcher.get_market_data(ticker, period_map[period_crypto])
+                            if "error" not in data and not data['history'].empty:
+                                fig_crypto.add_trace(go.Scatter(
+                                    x=data['history'].index,
+                                    y=data['history']['Close'],
+                                    name=name,
+                                    mode='lines',
+                                    line=dict(width=2)
+                                ))
+
+                        fig_crypto.update_layout(
+                            title="Cryptocurrency Prices",
+                            height=450,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#0e1117',
+                            font_color='white',
+                            hovermode='x unified',
+                            xaxis=dict(gridcolor='#374151'),
+                            yaxis=dict(gridcolor='#374151')
+                        )
+                        st.plotly_chart(fig_crypto, use_container_width=True)
+
+                    with chart_tab3:
+                        period_commodities = st.selectbox("Time Period", ["1D", "5D", "1M", "6M", "1Y"], key="commodities_period")
+                        commodity_tickers = ["GC=F", "CL=F", "SI=F"]
+                        commodity_names = ["Gold", "Crude Oil", "Silver"]
+
+                        fig_commodities = go.Figure()
+                        for ticker, name in zip(commodity_tickers, commodity_names):
+                            data = MarketDataFetcher.get_market_data(ticker, period_map[period_commodities])
+                            if "error" not in data and not data['history'].empty:
+                                fig_commodities.add_trace(go.Scatter(
+                                    x=data['history'].index,
+                                    y=data['history']['Close'],
+                                    name=name,
+                                    mode='lines',
+                                    line=dict(width=2)
+                                ))
+
+                        fig_commodities.update_layout(
+                            title="Commodity Prices",
+                            height=450,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#0e1117',
+                            font_color='white',
+                            hovermode='x unified',
+                            xaxis=dict(gridcolor='#374151'),
+                            yaxis=dict(gridcolor='#374151')
+                        )
+                        st.plotly_chart(fig_commodities, use_container_width=True)
+
+                else:
+                    st.info("📊 Install yfinance to see live market data: `pip install yfinance`")
+                    cols = st.columns(5)
+                    demo_markets = [
+                        ("S&P 500", 4500.25, 1.2),
+                        ("NASDAQ", 14200.50, 1.8),
+                        ("Gold", 2050.75, -0.3),
+                        ("Bitcoin", 45000.00, 3.5),
+                        ("10Y Treasury", 4.25, -0.1)
+                    ]
+
+                    for idx, (name, price, change) in enumerate(demo_markets):
+                        with cols[idx]:
+                            change_icon = "▲" if change >= 0 else "▼"
+                            change_color = "#4ade80" if change >= 0 else "#ef4444"
+                            st.markdown(f'''
+                            <div class="metric-card" style="border-left-color: {change_color};">
+                                <h4>{name}</h4>
+                                <h2>${price:,.2f}</h2>
+                                <p style="color: {change_color};">{change_icon} {change:.2f}%</p>
+                            </div>
+                            ''', unsafe_allow_html=True)
+
+            with tab2:
+                st.markdown("### 💼 AI Portfolio Builder")
+                st.markdown("<div style='margin-bottom:20px;'></div>", unsafe_allow_html=True)
+
+                with st.form("portfolio_builder_form"):
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        investment_amount = st.number_input("💰 Investment Amount ($)", min_value=100.0, value=10000.0, step=1000.0)
+                        investment_goal = st.selectbox("🎯 Investment Goal", ["Growth", "Passive Income", "Retirement", "Short-Term"])
+
+                    with col2:
+                        time_horizon = st.slider("⏰ Time Horizon (years)", 1, 30, 10)
+                        risk_profile = st.radio("📊 Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1)
+
+                    submitted_portfolio = st.form_submit_button("🚀 Generate Portfolio", type="primary")
+
+                if submitted_portfolio:
+                    with st.spinner("Generating AI-powered portfolio..."):
+                        allocation_data = FinancialCalculator.calculate_investment_allocation(
+                            risk_profile.lower(),
+                            time_horizon,
+                            investment_amount,
+                            35
+                        )
+
+                        st.markdown("### 📊 Your Personalized Portfolio")
+
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.markdown(display_metric_card(
+                                "Expected Return",
+                                f"{allocation_data['expected_annual_return']:.2%}",
+                                "Annual average"
+                            ), unsafe_allow_html=True)
+
+                        with col2:
+                            st.markdown(display_metric_card(
+                                "Volatility",
+                                f"{allocation_data['volatility_estimate']:.2%}",
+                                "Risk measure"
+                            ), unsafe_allow_html=True)
+
+                        with col3:
+                            st.markdown(display_metric_card(
+                                "Risk Profile",
+                                risk_profile,
+                                f"{time_horizon} year horizon"
+                            ), unsafe_allow_html=True)
+
+                        with col4:
+                            projected_5y = investment_amount * ((1 + allocation_data['expected_annual_return']) ** 5)
+                            st.markdown(display_metric_card(
+                                "5-Year Projection",
+                                f"${projected_5y:,.0f}",
+                                f"+${projected_5y - investment_amount:,.0f}"
+                            ), unsafe_allow_html=True)
+
+                        col_chart1, col_chart2 = st.columns(2)
+
+                        with col_chart1:
+                            st.markdown("#### Asset Allocation")
+                            fig_pie = go.Figure(data=[go.Pie(
+                                labels=list(allocation_data['allocation_percentages'].keys()),
+                                values=list(allocation_data['allocation_percentages'].values()),
+                                hole=0.4,
+                                marker_colors=['#3b82f6', '#f59e0b', '#10b981']
+                            )])
+                            fig_pie.update_layout(
+                                height=400,
+                                paper_bgcolor='#1f2937',
+                                plot_bgcolor='#1f2937',
+                                font_color='white',
+                                showlegend=True
+                            )
+                            st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
+
+                        with col_chart2:
+                            st.markdown("#### Dollar Allocation")
+                            fig_bar = go.Figure(data=[go.Bar(
+                                x=list(allocation_data['allocation_dollars'].keys()),
+                                y=list(allocation_data['allocation_dollars'].values()),
+                                marker_color=['#3b82f6', '#f59e0b', '#10b981']
+                            )])
+                            fig_bar.update_layout(
+                                height=400,
+                                paper_bgcolor='#1f2937',
+                                plot_bgcolor='#1f2937',
+                                font_color='white',
+                                xaxis=dict(gridcolor='#374151'),
+                                yaxis=dict(gridcolor='#374151', title="Amount ($)")
+                            )
+                            st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+
+                        st.markdown("#### 📈 Growth Projections")
+                        projections = allocation_data['projections']
+                        years = []
+                        conservative = []
+                        expected = []
+                        optimistic = []
+
+                        for year_key in sorted(projections.keys(), key=lambda x: int(x.split('_')[0])):
+                            year = int(year_key.split('_')[0])
+                            years.append(year)
+                            conservative.append(projections[year_key]['conservative'])
+                            expected.append(projections[year_key]['expected'])
+                            optimistic.append(projections[year_key]['optimistic'])
+
+                        fig_projection = go.Figure()
+                        fig_projection.add_trace(go.Scatter(x=years, y=conservative, name='Conservative', line=dict(color='#f59e0b', dash='dash')))
+                        fig_projection.add_trace(go.Scatter(x=years, y=expected, name='Expected', line=dict(color='#3b82f6', width=3)))
+                        fig_projection.add_trace(go.Scatter(x=years, y=optimistic, name='Optimistic', line=dict(color='#10b981', dash='dash')))
+
+                        fig_projection.update_layout(
+                            title="Portfolio Value Over Time",
+                            height=450,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#0e1117',
+                            font_color='white',
+                            xaxis=dict(title="Years", gridcolor='#374151'),
+                            yaxis=dict(title="Portfolio Value ($)", gridcolor='#374151'),
+                            hovermode='x unified'
+                        )
+                        st.plotly_chart(fig_projection, use_container_width=True)
+
+                        ai_insights = generate_ai_insights({
+                            'allocation': allocation_data,
+                            'investment_amount': investment_amount,
+                            'time_horizon': time_horizon,
+                            'risk_profile': risk_profile,
+                            'goal': investment_goal
+                        }, "Investment Analysis")
+
+                        display_ai_suggestions(ai_insights, "Investment Analysis")
+
+            with tab3:
+                st.markdown("### 🤖 AI Investment Insights")
+                st.info("Generate a portfolio in the 'Portfolio Builder' tab to see AI insights here.")
+
+                if 'investment_data' in st.session_state:
+                    st.markdown("#### 📊 Your Current Portfolio Analysis")
+                    investment = st.session_state.investment_data
+                    ai_insights = st.session_state.get('investment_ai_insights', {})
+
+                    if ai_insights:
+                        display_ai_suggestions(ai_insights, "Investment Analysis")
+
+            with tab4:
+                st.markdown("### 📰 Market News & Headlines")
+
+                if YFINANCE_AVAILABLE:
+                    st.info("📰 Market news integration coming soon. Currently showing market sentiment analysis.")
+
+                    news_items = [
+                        {
+                            "headline": "S&P 500 hits new all-time high",
+                            "source": "MarketWatch",
+                            "time": "2 hours ago",
+                            "sentiment": "Bullish"
+                        },
+                        {
+                            "headline": "Federal Reserve signals potential rate cuts",
+                            "source": "Bloomberg",
+                            "time": "4 hours ago",
+                            "sentiment": "Neutral"
+                        },
+                        {
+                            "headline": "Tech stocks lead market rally",
+                            "source": "CNBC",
+                            "time": "6 hours ago",
+                            "sentiment": "Bullish"
+                        },
+                        {
+                            "headline": "Oil prices decline amid demand concerns",
+                            "source": "Reuters",
+                            "time": "8 hours ago",
+                            "sentiment": "Bearish"
+                        },
+                        {
+                            "headline": "Bitcoin surges past key resistance level",
+                            "source": "CoinDesk",
+                            "time": "10 hours ago",
+                            "sentiment": "Bullish"
+                        }
+                    ]
+
+                    for item in news_items:
+                        sentiment_color = {
+                            "Bullish": "#4ade80",
+                            "Bearish": "#ef4444",
+                            "Neutral": "#d1d5db"
+                        }[item['sentiment']]
+
+                        sentiment_icon = {
+                            "Bullish": "🟢",
+                            "Bearish": "🔴",
+                            "Neutral": "⚪"
+                        }[item['sentiment']]
+
+                        st.markdown(f'''
+                        <div class="metric-card" style="margin-bottom: 15px;">
+                            <h4 style="margin-bottom: 10px;">{item['headline']}</h4>
+                            <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 5px;">
+                                {item['source']} • {item['time']}
+                            </p>
+                            <p style="color: {sentiment_color}; font-weight: bold;">
+                                {sentiment_icon} {item['sentiment']}
+                            </p>
+                        </div>
+                        ''', unsafe_allow_html=True)
+                else:
+                    st.info("Install yfinance to access market news features.")
 
     @staticmethod
     def demo_dashboard():
@@ -1891,69 +2387,677 @@ class FinancialFlows:
 
     @staticmethod
     def investing_flow():
-        """AI-Powered Real-Time Portfolio Builder with live market data and LLAMA suggestions."""
+        """Interactive Portfolio Profile Builder with 4-step wizard."""
         if not TEST_MODE:
-            st.markdown('<div class="flow-card"><h2>📈 Investment Portfolio Builder</h2><p>AI-powered real-time dashboard with live market data.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="flow-card"><h2>📈 Interactive Portfolio Profile Builder</h2><p>AI-powered portfolio builder with smooth step-by-step guidance.</p></div>', unsafe_allow_html=True)
 
+        # Initialize session state variables
+        if 'profile_step' not in st.session_state:
+            st.session_state.profile_step = 1
         if 'profile_data' not in st.session_state:
             st.session_state.profile_data = {
-                'risk_profile': 'Moderate',
+                'persona': None,
+                'goal': None,
+                'target_amount': 0,
                 'time_horizon': 10,
+                'current_age': 35,
                 'investment_capital': 10000.0,
-                'current_age': 35
+                'risk_answers': {},
+                'risk_score': 0,
+                'risk_profile': None,
+                'allocations': {'stocks': 60, 'bonds': 30, 'cash': 10, 'real_estate': 0, 'crypto': 0}
             }
+        if 'saved_profiles' not in st.session_state:
+            st.session_state.saved_profiles = []
+        if 'ai_result' not in st.session_state:
+            st.session_state.ai_result = None
 
+        # Reset functionality
         if not TEST_MODE:
-            st.markdown("## 💼 AI-Powered Portfolio Builder")
-            override=st.checkbox("🔧 Manual override",False)
-            prof=st.session_state.profile_data
-            risk=prof.get("risk_profile","Moderate");yrs=prof.get("time_horizon",10)
-            cap=prof.get("investment_capital",10000.0);age=prof.get("current_age",35)
+            col_reset1, col_reset2 = st.columns([6, 1])
+            with col_reset2:
+                if st.button("🔄 Reset", key="reset_portfolio_wizard"):
+                    st.session_state.profile_step = 1
+                    st.session_state.profile_data = {
+                        'persona': None,
+                        'goal': None,
+                        'target_amount': 0,
+                        'time_horizon': 10,
+                        'current_age': 35,
+                        'investment_capital': 10000.0,
+                        'risk_answers': {},
+                        'risk_score': 0,
+                        'risk_profile': None,
+                        'allocations': {'stocks': 60, 'bonds': 30, 'cash': 10, 'real_estate': 0, 'crypto': 0}
+                    }
+                    st.session_state.ai_result = None
+                    st.rerun()
 
-            def render():
-                snap=get_market_snapshot()
-                st.markdown("### 🌍 Market Snapshot (5-Day Change)")
-                c1,c2,c3,c4,c5=st.columns(5)
-                for (n,v),c in zip(snap.items(),[c1,c2,c3,c4,c5]): c.metric(n,f"{v:+.2f}%", "⬆️" if v>0 else "⬇️")
+        # Progress indicator
+        if not TEST_MODE:
+            progress_pct = (st.session_state.profile_step / 4) * 100
+            st.progress(progress_pct / 100)
+            st.markdown(f"<p style='text-align:center; color:#9ca3af;'>Step {st.session_state.profile_step} of 4</p>", unsafe_allow_html=True)
+            st.markdown("---")
 
-                if not override:
-                    st.markdown("### 🤖 AI Suggested Allocation")
-                    try:
-                        from langchain_groq import ChatGroq
-                        llm=ChatGroq(model="llama-3.3-70b-versatile",temperature=0.4,groq_api_key=groq_api_key)
-                        txt="\\n".join([f"{k}: {v:+.2f}%" for k,v in snap.items()])
-                        prompt=f"""You are an AI financial advisor.
-Based on live 5-day market data and user profile below,
-suggest a 100% allocation across Stocks, Bonds, Gold, Crypto, Cash + reasoning.
+        # STEP 1: Investor Persona & Goal
+        if st.session_state.profile_step == 1:
+            if not TEST_MODE:
+                st.subheader("Step 1: Investor Persona & Goal")
 
-Market Data: {txt}
-Risk Profile:{risk}  Time Horizon:{yrs}  Capital:${cap:,}  Age:{age}
-Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reasoning\":\"\"}}"""
-                        r=llm.invoke(prompt)
-                        try:
-                            sug=json.loads(r.content)
-                        except:
-                            sug={"Stocks":50,"Bonds":25,"Gold":10,"Crypto":5,"Cash":10,"Reasoning":"Default suggestion"}
-                        cols=st.columns(5)
-                        for i,k in enumerate(["Stocks","Bonds","Gold","Crypto","Cash"]): cols[i].metric(k,f"{sug[k]}%")
-                        st.info("💬 "+sug["Reasoning"])
-                        fig=go.Figure(data=[go.Pie(labels=list(sug.keys()),values=list(sug.values()),hole=0.4)])
-                        fig.update_layout(title="AI Portfolio Mix",height=340,paper_bgcolor='#1f2937',plot_bgcolor='#1f2937',font_color='white');st.plotly_chart(fig,use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"AI analysis unavailable: {str(e)}")
-                        sug={"Stocks":50,"Bonds":25,"Gold":10,"Crypto":5,"Cash":10,"Reasoning":"Using default allocation"}
-                        cols=st.columns(5)
-                        for i,k in enumerate(["Stocks","Bonds","Gold","Crypto","Cash"]): cols[i].metric(k,f"{sug[k]}%")
-                        st.info("💬 "+sug["Reasoning"])
+                st.session_state.profile_data['persona'] = st.selectbox(
+                    "Select Your Investor Persona",
+                    ["Conservative Saver", "Balanced Investor", "Growth Seeker", "Aggressive Trader"],
+                    index=1 if st.session_state.profile_data['persona'] is None else
+                          ["Conservative Saver", "Balanced Investor", "Growth Seeker", "Aggressive Trader"].index(st.session_state.profile_data['persona'])
+                )
+
+                st.session_state.profile_data['goal'] = st.selectbox(
+                    "Primary Investment Goal",
+                    ["Retirement", "House Down Payment", "Emergency Fund", "Wealth Building", "Education", "Other"],
+                    index=0 if st.session_state.profile_data['goal'] is None else
+                          ["Retirement", "House Down Payment", "Emergency Fund", "Wealth Building", "Education", "Other"].index(st.session_state.profile_data['goal'])
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.session_state.profile_data['target_amount'] = st.number_input(
+                        "Target Amount ($)",
+                        min_value=0.0,
+                        value=float(st.session_state.profile_data['target_amount']),
+                        step=10000.0
+                    )
+                    st.session_state.profile_data['time_horizon'] = st.slider(
+                        "Investment Time Horizon (years)",
+                        1, 40,
+                        st.session_state.profile_data['time_horizon']
+                    )
+
+                with col2:
+                    st.session_state.profile_data['current_age'] = st.number_input(
+                        "Your Current Age",
+                        min_value=18,
+                        max_value=80,
+                        value=st.session_state.profile_data['current_age']
+                    )
+                    st.session_state.profile_data['investment_capital'] = st.number_input(
+                        "Initial Investment Amount",
+                        min_value=0.0,
+                        value=float(st.session_state.profile_data['investment_capital']),
+                        step=1000.0
+                    )
+
+                st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+                if st.button("Next →", type="primary", key="step1_next"):
+                    st.session_state.profile_step = 2
+                    st.rerun()
+
+        # STEP 2: Risk Profiling with live gauge
+        elif st.session_state.profile_step == 2:
+            if not TEST_MODE:
+                st.subheader("Step 2: Risk Profiling")
+
+                st.markdown("Answer these questions to assess your risk tolerance:")
+                st.markdown("<div style='margin-bottom:20px;'></div>", unsafe_allow_html=True)
+
+                q1 = st.radio(
+                    "If your portfolio dropped 20% in a month, you would:",
+                    ["Panic and sell everything", "Feel uncomfortable but hold", "See it as a buying opportunity"],
+                    index=0 if 'market_drop' not in st.session_state.profile_data['risk_answers'] else
+                          ["Panic and sell everything", "Feel uncomfortable but hold", "See it as a buying opportunity"].index(st.session_state.profile_data['risk_answers'].get('market_drop', "Feel uncomfortable but hold")),
+                    key="q1_market_drop"
+                )
+                st.session_state.profile_data['risk_answers']['market_drop'] = q1
+
+                st.markdown("<div style='margin:15px 0;'></div>", unsafe_allow_html=True)
+
+                q2 = st.radio(
+                    "Your investment experience level:",
+                    ["Beginner (< 2 years)", "Intermediate (2-10 years)", "Advanced (> 10 years)"],
+                    index=0 if 'investment_experience' not in st.session_state.profile_data['risk_answers'] else
+                          ["Beginner (< 2 years)", "Intermediate (2-10 years)", "Advanced (> 10 years)"].index(st.session_state.profile_data['risk_answers'].get('investment_experience', "Beginner (< 2 years)")),
+                    key="q2_experience"
+                )
+                st.session_state.profile_data['risk_answers']['investment_experience'] = q2
+
+                st.markdown("<div style='margin:15px 0;'></div>", unsafe_allow_html=True)
+
+                q3 = st.radio(
+                    "Your income stability:",
+                    ["Unstable/Variable", "Stable", "Very Stable with Growth"],
+                    index=0 if 'income_stability' not in st.session_state.profile_data['risk_answers'] else
+                          ["Unstable/Variable", "Stable", "Very Stable with Growth"].index(st.session_state.profile_data['risk_answers'].get('income_stability', "Stable")),
+                    key="q3_income"
+                )
+                st.session_state.profile_data['risk_answers']['income_stability'] = q3
+
+                st.markdown("<div style='margin:15px 0;'></div>", unsafe_allow_html=True)
+
+                q4 = st.radio(
+                    "Regarding investment volatility:",
+                    ["I need stable, predictable returns", "I can handle some ups and downs", "I'm comfortable with high volatility for higher returns"],
+                    index=0 if 'sleep_factor' not in st.session_state.profile_data['risk_answers'] else
+                          ["I need stable, predictable returns", "I can handle some ups and downs", "I'm comfortable with high volatility for higher returns"].index(st.session_state.profile_data['risk_answers'].get('sleep_factor', "I can handle some ups and downs")),
+                    key="q4_volatility"
+                )
+                st.session_state.profile_data['risk_answers']['sleep_factor'] = q4
+
+                # Calculate risk score
+                risk_weights = {
+                    "market_drop": {"Panic and sell everything": 1, "Feel uncomfortable but hold": 2, "See it as a buying opportunity": 3},
+                    "investment_experience": {"Beginner (< 2 years)": 1, "Intermediate (2-10 years)": 2, "Advanced (> 10 years)": 3},
+                    "income_stability": {"Unstable/Variable": 1, "Stable": 2, "Very Stable with Growth": 3},
+                    "sleep_factor": {"I need stable, predictable returns": 1, "I can handle some ups and downs": 2, "I'm comfortable with high volatility for higher returns": 3}
+                }
+
+                risk_score = sum(risk_weights[q][a] for q, a in st.session_state.profile_data['risk_answers'].items())
+                st.session_state.profile_data['risk_score'] = risk_score
+
+                if risk_score <= 6:
+                    risk_profile = "Conservative"
+                    risk_color = "#f59e0b"
+                elif risk_score <= 9:
+                    risk_profile = "Moderate"
+                    risk_color = "#3b82f6"
                 else:
-                    st.warning("Manual mode enabled – adjust below (=100%)")
-                    s=st.slider("Stocks",0,100,50);b=st.slider("Bonds",0,100,25)
-                    g=st.slider("Gold",0,100,10);c=st.slider("Crypto",0,100,5);h=st.slider("Cash",0,100,10)
-                    tot=s+b+g+c+h
-                    st.success("✓ 100%" if tot==100 else f"⚠️ {tot}% (total)")
+                    risk_profile = "Aggressive"
+                    risk_color = "#ef4444"
 
-            render()
+                st.session_state.profile_data['risk_profile'] = risk_profile
 
+                # Live risk gauge with proper spacing
+                st.markdown("<div style='margin-top:40px;'></div>", unsafe_allow_html=True)
+                st.markdown("### Your Risk Profile")
+
+                col_gauge1, col_gauge2, col_gauge3 = st.columns([1, 2, 1])
+                with col_gauge2:
+                    fig_risk = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=risk_score,
+                        title={'text': f"<b>Risk Score: {risk_profile}</b>", 'font': {'size': 20, 'color': 'white'}},
+                        number={'font': {'size': 40, 'color': 'white'}},
+                        gauge={
+                            'axis': {'range': [None, 12], 'tickwidth': 1, 'tickcolor': 'white'},
+                            'bar': {'color': risk_color, 'thickness': 0.6},
+                            'steps': [
+                                {'range': [0, 6], 'color': '#d1d5db'},
+                                {'range': [6, 9], 'color': '#9ca3af'},
+                                {'range': [9, 12], 'color': '#6b7280'}
+                            ],
+                            'threshold': {
+                                'line': {'color': 'white', 'width': 2},
+                                'thickness': 0.75,
+                                'value': risk_score
+                            }
+                        }
+                    ))
+                    fig_risk.update_layout(
+                        height=350,
+                        paper_bgcolor='#1f2937',
+                        plot_bgcolor='#1f2937',
+                        font_color='white',
+                        margin=dict(t=60, b=40, l=40, r=40)
+                    )
+                    st.plotly_chart(fig_risk, use_container_width=True, config={"displayModeBar": False})
+
+                st.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
+                col_nav1, col_nav2 = st.columns(2)
+                with col_nav1:
+                    if st.button("← Back", key="step2_back"):
+                        st.session_state.profile_step = 1
+                        st.rerun()
+                with col_nav2:
+                    if st.button("Next →", type="primary", key="step2_next"):
+                        st.session_state.profile_step = 3
+                        st.rerun()
+
+        # STEP 3: Asset Sandbox with sliders
+        elif st.session_state.profile_step == 3:
+            if not TEST_MODE:
+                st.subheader("Step 3: Asset Allocation Sandbox")
+
+                st.info(f"Suggested Profile: **{st.session_state.profile_data['risk_profile']}** — Adjust allocations below")
+
+                # Set default allocations based on risk profile
+                if st.session_state.profile_data['risk_profile'] == "Conservative":
+                    default_alloc = {'stocks': 25, 'bonds': 65, 'cash': 10, 'real_estate': 0, 'crypto': 0}
+                elif st.session_state.profile_data['risk_profile'] == "Moderate":
+                    default_alloc = {'stocks': 60, 'bonds': 30, 'cash': 5, 'real_estate': 5, 'crypto': 0}
+                else:
+                    default_alloc = {'stocks': 75, 'bonds': 15, 'cash': 5, 'real_estate': 5, 'crypto': 0}
+
+                # Only update if allocations haven't been customized
+                if sum(st.session_state.profile_data['allocations'].values()) == 0 or st.session_state.profile_data['allocations'] == {'stocks': 60, 'bonds': 30, 'cash': 10, 'real_estate': 0, 'crypto': 0}:
+                    st.session_state.profile_data['allocations'] = default_alloc.copy()
+
+                st.markdown("### Adjust Your Asset Mix")
+
+                stocks_pct = st.slider(
+                    "Stocks (%)",
+                    0, 100,
+                    st.session_state.profile_data['allocations']['stocks'],
+                    key="slider_stocks"
+                )
+
+                bonds_pct = st.slider(
+                    "Bonds (%)",
+                    0, 100,
+                    st.session_state.profile_data['allocations']['bonds'],
+                    key="slider_bonds"
+                )
+
+                cash_pct = st.slider(
+                    "Cash (%)",
+                    0, 100,
+                    st.session_state.profile_data['allocations']['cash'],
+                    key="slider_cash"
+                )
+
+                real_estate_pct = st.slider(
+                    "Real Estate / REITs (%)",
+                    0, 100,
+                    st.session_state.profile_data['allocations']['real_estate'],
+                    key="slider_reits"
+                )
+
+                crypto_pct = st.slider(
+                    "Crypto (%)",
+                    0, 100,
+                    st.session_state.profile_data['allocations']['crypto'],
+                    key="slider_crypto"
+                )
+
+                total_alloc = stocks_pct + bonds_pct + cash_pct + real_estate_pct + crypto_pct
+
+                st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
+
+                if total_alloc != 100:
+                    st.warning(f"⚠️ Total allocation: {total_alloc}%. Please adjust to equal 100%.")
+                else:
+                    st.success(f"✓ Total allocation: {total_alloc}%")
+                    st.session_state.profile_data['allocations'] = {
+                        'stocks': stocks_pct,
+                        'bonds': bonds_pct,
+                        'cash': cash_pct,
+                        'real_estate': real_estate_pct,
+                        'crypto': crypto_pct
+                    }
+
+                # Live pie chart with proper spacing
+                st.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
+                if total_alloc > 0:
+                    alloc_values = [stocks_pct, bonds_pct, cash_pct, real_estate_pct, crypto_pct]
+                    alloc_labels = ['Stocks', 'Bonds', 'Cash', 'Real Estate', 'Crypto']
+                    alloc_colors = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444']
+
+                    col_chart1, col_chart2, col_chart3 = st.columns([0.5, 2, 0.5])
+                    with col_chart2:
+                        fig_pie = go.Figure(data=[go.Pie(
+                            labels=[l for l, v in zip(alloc_labels, alloc_values) if v > 0],
+                            values=[v for v in alloc_values if v > 0],
+                            marker=dict(colors=[c for c, v in zip(alloc_colors, alloc_values) if v > 0]),
+                            hole=0.4,
+                            textposition='inside',
+                            textinfo='percent+label'
+                        )])
+                        fig_pie.update_layout(
+                            title={
+                                'text': "Your Portfolio Mix",
+                                'x': 0.5,
+                                'xanchor': 'center',
+                                'font': {'size': 18, 'color': 'white'}
+                            },
+                            height=450,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#1f2937',
+                            font_color='white',
+                            showlegend=True,
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=-0.15,
+                                xanchor="center",
+                                x=0.5
+                            ),
+                            margin=dict(t=80, b=80, l=60, r=60)
+                        )
+                        st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
+
+                st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+
+                # Auto-Rebalance button
+                if st.button("🔁 Auto-Rebalance Suggestion", key="auto_rebalance"):
+                    st.session_state.profile_data['allocations'] = default_alloc.copy()
+                    st.success(f"Auto-rebalanced to {st.session_state.profile_data['risk_profile']} profile!")
+                    st.rerun()
+
+                st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
+                col_nav1, col_nav2 = st.columns(2)
+                with col_nav1:
+                    if st.button("← Back", key="step3_back"):
+                        st.session_state.profile_step = 2
+                        st.rerun()
+                with col_nav2:
+                    if st.button("Next →", type="primary", key="step3_next", disabled=(total_alloc != 100)):
+                        st.session_state.profile_step = 4
+                        st.rerun()
+
+        # STEP 4: Review & AI Analysis
+        elif st.session_state.profile_step == 4:
+            if not TEST_MODE:
+                st.subheader("Step 4: Review & AI Analysis")
+
+                # Display profile summary
+                st.markdown("### Your Portfolio Profile")
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.markdown(display_metric_card(
+                        "Persona",
+                        st.session_state.profile_data['persona'],
+                        f"Risk: {st.session_state.profile_data['risk_profile']}"
+                    ), unsafe_allow_html=True)
+
+                with col2:
+                    st.markdown(display_metric_card(
+                        "Goal",
+                        st.session_state.profile_data['goal'],
+                        f"Horizon: {st.session_state.profile_data['time_horizon']} years"
+                    ), unsafe_allow_html=True)
+
+                with col3:
+                    st.markdown(display_metric_card(
+                        "Initial Capital",
+                        f"${st.session_state.profile_data['investment_capital']:,.0f}"
+                    ), unsafe_allow_html=True)
+
+                with col4:
+                    if st.session_state.profile_data['target_amount'] > 0:
+                        st.markdown(display_metric_card(
+                            "Target Amount",
+                            f"${st.session_state.profile_data['target_amount']:,.0f}"
+                        ), unsafe_allow_html=True)
+                    else:
+                        st.markdown(display_metric_card(
+                            "Age",
+                            f"{st.session_state.profile_data['current_age']} years"
+                        ), unsafe_allow_html=True)
+
+                # Calculate portfolio metrics
+                capital = st.session_state.profile_data['investment_capital']
+                allocations = st.session_state.profile_data['allocations']
+
+                # Map to standard 3-asset allocation for calculator
+                standard_alloc = {
+                    'stocks': allocations['stocks'] + allocations['real_estate'] + allocations['crypto'],
+                    'bonds': allocations['bonds'],
+                    'cash': allocations['cash']
+                }
+
+                allocation_data = FinancialCalculator.calculate_investment_allocation(
+                    st.session_state.profile_data['risk_profile'],
+                    st.session_state.profile_data['time_horizon'],
+                    capital,
+                    st.session_state.profile_data['current_age']
+                )
+
+                # Override with user's custom allocation
+                allocation_data['allocation_percentages'] = standard_alloc
+                allocation_data['allocation_dollars'] = {
+                    asset: (percentage / 100) * capital for asset, percentage in standard_alloc.items()
+                }
+
+                # Recalculate expected return based on custom allocation
+                expected_returns = {'stocks': 0.10, 'bonds': 0.04, 'cash': 0.02}
+                portfolio_return = sum(
+                    (standard_alloc[asset] / 100) * expected_returns[asset] for asset in standard_alloc
+                )
+                allocation_data['expected_annual_return'] = portfolio_return
+
+                # Display key metrics
+                st.markdown("### Portfolio Metrics")
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.markdown(display_metric_card(
+                        "Expected Return",
+                        f"{allocation_data['expected_annual_return']:.2%}",
+                        "Annual average"
+                    ), unsafe_allow_html=True)
+
+                with col2:
+                    vol = allocation_data['volatility_estimate']
+                    st.markdown(display_metric_card(
+                        "Volatility",
+                        f"{vol:.2%}",
+                        "Risk measure"
+                    ), unsafe_allow_html=True)
+
+                with col3:
+                    # Diversification index (simple: count of assets > 5%)
+                    div_index = sum(1 for v in allocations.values() if v >= 5) * 20
+                    div_index = min(100, div_index)
+                    st.markdown(display_metric_card(
+                        "Diversification",
+                        f"{div_index}/100",
+                        f"{sum(1 for v in allocations.values() if v >= 5)} assets"
+                    ), unsafe_allow_html=True)
+
+                with col4:
+                    # Goal achievement % (if target set)
+                    if st.session_state.profile_data['target_amount'] > 0:
+                        years = st.session_state.profile_data['time_horizon']
+                        projected = capital * ((1 + portfolio_return) ** years)
+                        goal_pct = min(100, (projected / st.session_state.profile_data['target_amount']) * 100)
+                        st.markdown(display_metric_card(
+                            "Goal Progress",
+                            f"{goal_pct:.0f}%",
+                            f"${projected:,.0f} projected"
+                        ), unsafe_allow_html=True)
+                    else:
+                        st.markdown(display_metric_card(
+                            "10-Year Growth",
+                            f"${capital * ((1 + portfolio_return) ** 10):,.0f}",
+                            "Projected value"
+                        ), unsafe_allow_html=True)
+
+                # Growth projection chart
+                st.markdown("### Growth Projections")
+                years_list = list(range(0, st.session_state.profile_data['time_horizon'] + 1, max(1, st.session_state.profile_data['time_horizon'] // 10)))
+                if st.session_state.profile_data['time_horizon'] not in years_list:
+                    years_list.append(st.session_state.profile_data['time_horizon'])
+                years_list = sorted(years_list)
+
+                conservative_vals = [capital * ((1 + portfolio_return * 0.7) ** y) for y in years_list]
+                expected_vals = [capital * ((1 + portfolio_return) ** y) for y in years_list]
+                optimistic_vals = [capital * ((1 + portfolio_return * 1.3) ** y) for y in years_list]
+
+                # Monte Carlo simulation (simplified)
+                np.random.seed(42)
+                monte_carlo_vals = []
+                for _ in range(100):
+                    val = capital
+                    for y in range(st.session_state.profile_data['time_horizon']):
+                        annual_return = np.random.normal(portfolio_return, vol)
+                        val *= (1 + annual_return)
+                    monte_carlo_vals.append(val)
+
+                mc_median = np.median(monte_carlo_vals)
+                mc_10th = np.percentile(monte_carlo_vals, 10)
+                mc_90th = np.percentile(monte_carlo_vals, 90)
+
+                fig_growth = go.Figure()
+                fig_growth.add_trace(go.Scatter(x=years_list, y=conservative_vals, name='Conservative', line=dict(color='#f59e0b', dash='dash')))
+                fig_growth.add_trace(go.Scatter(x=years_list, y=expected_vals, name='Expected', line=dict(color='#3b82f6', width=3)))
+                fig_growth.add_trace(go.Scatter(x=years_list, y=optimistic_vals, name='Optimistic', line=dict(color='#10b981', dash='dash')))
+
+                # Add Monte Carlo range as shaded area
+                fig_growth.add_trace(go.Scatter(
+                    x=[st.session_state.profile_data['time_horizon']],
+                    y=[mc_10th],
+                    mode='markers',
+                    marker=dict(color='#ef4444', size=10),
+                    name='Monte Carlo 10th'
+                ))
+                fig_growth.add_trace(go.Scatter(
+                    x=[st.session_state.profile_data['time_horizon']],
+                    y=[mc_90th],
+                    mode='markers',
+                    marker=dict(color='#10b981', size=10),
+                    name='Monte Carlo 90th'
+                ))
+
+                fig_growth.update_layout(
+                    title="Portfolio Growth Over Time",
+                    xaxis_title="Years",
+                    yaxis_title="Portfolio Value ($)",
+                    height=450,
+                    paper_bgcolor='#1f2937',
+                    plot_bgcolor='#1f2937',
+                    font_color='white',
+                    hovermode='x unified',
+                    showlegend=True
+                )
+                st.plotly_chart(fig_growth, use_container_width=True, config={"displayModeBar": False})
+
+                # Add expanded metrics section including Step 2 and Step 3 data
+                st.markdown("### Complete Portfolio Analysis")
+                st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+
+                col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
+
+                with col_m1:
+                    st.markdown(display_metric_card(
+                        "Risk Score",
+                        f"{st.session_state.profile_data['risk_score']}/12",
+                        f"Profile: {st.session_state.profile_data['risk_profile']}"
+                    ), unsafe_allow_html=True)
+
+                with col_m2:
+                    st.markdown(display_metric_card(
+                        "Stocks Allocation",
+                        f"{allocations['stocks']}%",
+                        f"${allocations['stocks'] * capital / 100:,.0f}"
+                    ), unsafe_allow_html=True)
+
+                with col_m3:
+                    st.markdown(display_metric_card(
+                        "Bonds Allocation",
+                        f"{allocations['bonds']}%",
+                        f"${allocations['bonds'] * capital / 100:,.0f}"
+                    ), unsafe_allow_html=True)
+
+                with col_m4:
+                    st.markdown(display_metric_card(
+                        "Cash Allocation",
+                        f"{allocations['cash']}%",
+                        f"${allocations['cash'] * capital / 100:,.0f}"
+                    ), unsafe_allow_html=True)
+
+                with col_m5:
+                    other_alloc = allocations.get('real_estate', 0) + allocations.get('crypto', 0)
+                    st.markdown(display_metric_card(
+                        "Alternative Assets",
+                        f"{other_alloc}%",
+                        f"${other_alloc * capital / 100:,.0f}"
+                    ), unsafe_allow_html=True)
+
+                # Monte Carlo Statistics
+                st.markdown("<div style='margin-top:25px;'></div>", unsafe_allow_html=True)
+                st.markdown("### Monte Carlo Simulation Results")
+                col_mc1, col_mc2, col_mc3 = st.columns(3)
+
+                with col_mc1:
+                    st.markdown(display_metric_card(
+                        "10th Percentile",
+                        f"${mc_10th:,.0f}",
+                        "Conservative outcome"
+                    ), unsafe_allow_html=True)
+
+                with col_mc2:
+                    st.markdown(display_metric_card(
+                        "Median Outcome",
+                        f"${mc_median:,.0f}",
+                        "Expected outcome"
+                    ), unsafe_allow_html=True)
+
+                with col_mc3:
+                    st.markdown(display_metric_card(
+                        "90th Percentile",
+                        f"${mc_90th:,.0f}",
+                        "Optimistic outcome"
+                    ), unsafe_allow_html=True)
+
+                # AI Analysis button
+                st.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
+                if st.button("🔍 Analyze My Portfolio", type="primary", key="analyze_ai", use_container_width=False):
+                    with st.spinner("Running AI analysis..."):
+                        st.session_state.ai_result = generate_ai_insights(
+                            {
+                                'profile_data': st.session_state.profile_data,
+                                'allocation_data': allocation_data,
+                                'portfolio_return': portfolio_return,
+                                'volatility': vol,
+                                'diversification': div_index,
+                                'monte_carlo': {
+                                    'median': mc_median,
+                                    '10th_percentile': mc_10th,
+                                    '90th_percentile': mc_90th
+                                }
+                            },
+                            "Investment Analysis"
+                        )
+                    st.rerun()
+
+                # Display AI result if available
+                if st.session_state.ai_result:
+                    st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+                    display_ai_suggestions(st.session_state.ai_result, "Investment Analysis")
+
+                # Backend save (no visible button)
+                from datetime import datetime
+                profile_snapshot = {
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'persona': st.session_state.profile_data['persona'],
+                    'goal': st.session_state.profile_data['goal'],
+                    'risk_profile': st.session_state.profile_data['risk_profile'],
+                    'risk_score': st.session_state.profile_data['risk_score'],
+                    'allocations': st.session_state.profile_data['allocations'].copy(),
+                    'capital': st.session_state.profile_data['investment_capital'],
+                    'expected_return': f"{portfolio_return:.2%}",
+                    'volatility': f"{vol:.2%}",
+                    'diversification': div_index
+                }
+
+                # Auto-save to session state
+                if 'saved_profiles' not in st.session_state or not st.session_state.saved_profiles:
+                    st.session_state.saved_profiles = [profile_snapshot]
+                else:
+                    # Update last profile or append new one
+                    if len(st.session_state.saved_profiles) > 0:
+                        last_profile = st.session_state.saved_profiles[-1]
+                        # Only save if there are changes
+                        if (last_profile.get('risk_profile') != profile_snapshot['risk_profile'] or
+                            last_profile.get('allocations') != profile_snapshot['allocations']):
+                            st.session_state.saved_profiles.append(profile_snapshot)
+                    else:
+                        st.session_state.saved_profiles.append(profile_snapshot)
+
+                # Navigation
+                st.markdown("<div style='margin-top:40px;'></div>", unsafe_allow_html=True)
+                col_nav1, col_nav2 = st.columns(2)
+                with col_nav1:
+                    if st.button("← Back", key="step4_back"):
+                        st.session_state.profile_step = 3
+                        st.rerun()
+                with col_nav2:
+                    if st.button("🏁 Finish", type="primary", key="finish"):
+                        st.session_state.investment_data = allocation_data
+                        st.session_state.investment_ai_insights = st.session_state.ai_result
+                        st.success("Portfolio profile completed and saved!")
+                        st.balloons()
+
+        # Test mode return
         if TEST_MODE:
             test_allocation = FinancialCalculator.calculate_investment_allocation('moderate', 15, 25000.0, 35)
             return test_allocation
@@ -2404,7 +3508,7 @@ def main():
     st.sidebar.subheader("📊 Financial Tools")
     menu = st.sidebar.selectbox(
         "Choose Section",
-        ["Demo Dashboard", "Budgeting", "Investments", "Debt", "Retirement"]
+        ["Demo Dashboard", "Live Market Dashboard", "Portfolio Builder", "Budgeting", "Debt", "Retirement"]
     )
 
     # Initialize session state for navigation
@@ -2419,10 +3523,12 @@ def main():
     # Route to appropriate section
     if st.session_state.selected_page == "Demo Dashboard":
         FinancialFlows.demo_dashboard()
+    elif st.session_state.selected_page == "Live Market Dashboard":
+        FinancialFlows.investment_portfolio_dashboard()
+    elif st.session_state.selected_page == "Portfolio Builder":
+        FinancialFlows.investing_flow()
     elif st.session_state.selected_page == "Budgeting":
         FinancialFlows.budgeting_flow()
-    elif st.session_state.selected_page == "Investments":
-        FinancialFlows.investing_flow()
     elif st.session_state.selected_page == "Debt":
         FinancialFlows.debt_repayment_flow()
     elif st.session_state.selected_page == "Retirement":
