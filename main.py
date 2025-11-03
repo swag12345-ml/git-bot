@@ -1488,83 +1488,363 @@ class FinancialFlows:
     """Structured financial advisory flows with step-by-step guidance"""
 
     @staticmethod
-    def demo_dashboard():
-        """Display demo dashboard with sample financial data."""
-        if not TEST_MODE:
-            st.markdown('<div class="flow-card"><h2>📊 Demo Dashboard</h2><p>This is a demo dashboard showing how the AI Financial Advisor analyzes user data across budgeting, investing, debt, and retirement planning.</p></div>', unsafe_allow_html=True)
+    @st.cache_data(ttl=900)
+    def fetch_market_data(tickers: List[str]) -> Dict[str, Any]:
+        """Fetch live market data from Yahoo Finance with caching."""
+        result = {}
+        for ticker in tickers:
+            try:
+                t = yf.Ticker(ticker)
+                history = t.history(period="5d", interval="1h")
+                info = t.info if hasattr(t, 'info') else {}
+                if not history.empty:
+                    result[ticker] = {
+                        "history": history,
+                        "info": info
+                    }
+            except Exception as e:
+                if not TEST_MODE:
+                    st.warning(f"Could not fetch data for {ticker}: {str(e)}")
+        return result
 
-            st.subheader("Demo User Profile")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown(display_metric_card("Name", "John Doe"), unsafe_allow_html=True)
-            with col2:
-                st.markdown(display_metric_card("Age", "35 years"), unsafe_allow_html=True)
-            with col3:
-                st.markdown(display_metric_card("Annual Income", "$75,000"), unsafe_allow_html=True)
-
-            st.markdown("---")
-
-            st.subheader("Demo Budget Summary")
-            demo_expenses = {
-                'housing': 1500, 'utilities': 200, 'groceries': 400,
-                'transportation': 300, 'insurance': 200, 'healthcare': 150,
-                'dining_out': 250, 'shopping': 150, 'subscriptions': 50,
-                'savings': 600, 'debt_payments': 250, 'other': 100
+    @staticmethod
+    def compute_sentiment_from_history(history_df, lookback=12):
+        """Compute sentiment based on price history."""
+        if history_df.empty or len(history_df) < 2:
+            return {
+                'slope': 0,
+                'pct_change': 0,
+                'volatility': 0,
+                'sentiment_label': 'Neutral ⚖️',
+                'color': '#9ca3af'
             }
-            demo_budget = FinancialCalculator.calculate_budget_summary(5150, demo_expenses)
 
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.markdown(display_metric_card("Total Income", f"${demo_budget['total_income']:,.2f}"), unsafe_allow_html=True)
-            with col2:
-                st.markdown(display_metric_card("Total Expenses", f"${demo_budget['total_expenses']:,.2f}"), unsafe_allow_html=True)
-            with col3:
-                st.markdown(display_metric_card("Monthly Savings", f"${demo_budget['savings']:,.2f}", color='green'), unsafe_allow_html=True)
-            with col4:
-                st.markdown(display_metric_card("Health Score", f"{demo_budget['health_score']}/100", color=demo_budget['health_color']), unsafe_allow_html=True)
+        close_prices = history_df['Close'].values
+        last_n = close_prices[-min(lookback, len(close_prices)):]
 
-            budget_viz = FinancialVisualizer.plot_budget_summary(demo_budget)
-            st.plotly_chart(budget_viz, use_container_width=True, config={"displayModeBar": False})
+        if len(last_n) < 2:
+            return {
+                'slope': 0,
+                'pct_change': 0,
+                'volatility': 0,
+                'sentiment_label': 'Neutral ⚖️',
+                'color': '#9ca3af'
+            }
+
+        slope = np.polyfit(range(len(last_n)), last_n, 1)[0] if len(last_n) > 1 else 0
+        latest = last_n[-1]
+        prev = last_n[0]
+        pct_change = ((latest - prev) / prev * 100) if prev != 0 else 0
+        volatility = (np.std(last_n) / np.mean(last_n) * 100) if np.mean(last_n) != 0 else 0
+
+        if slope > 0 and pct_change > 0.3:
+            sentiment_label = 'Bullish 📈'
+            color = '#4ade80'
+        elif slope < 0 and pct_change < -0.3:
+            sentiment_label = 'Bearish 📉'
+            color = '#f87171'
+        else:
+            sentiment_label = 'Neutral ⚖️'
+            color = '#9ca3af'
+
+        return {
+            'slope': slope,
+            'pct_change': pct_change,
+            'volatility': volatility,
+            'sentiment_label': sentiment_label,
+            'color': color
+        }
+
+    @staticmethod
+    def demo_dashboard():
+        """Advanced AI-Powered Portfolio & Market Dashboard with live data."""
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h1 style="text-align:center; margin:0;">🌍 Advanced AI-Powered Market & Portfolio Dashboard</h1><p style="text-align:center;">Real-time market data, intelligent insights, and personalized portfolio management</p></div>', unsafe_allow_html=True)
+
+            if 'portfolio_config' not in st.session_state:
+                st.session_state.portfolio_config = {
+                    'total_investment': 100000.0,
+                    'risk_tolerance': 'Moderate',
+                    'time_horizon': '7-15 years',
+                    'allocations': {'Stocks': 60, 'Crypto': 10, 'Commodities': 10, 'Bonds': 15, 'Cash': 5},
+                    'custom_tickers': ''
+                }
+
+            if 'auto_refresh' not in st.session_state:
+                st.session_state.auto_refresh = 'Off'
+
+            col_left, col_right = st.columns([1, 2])
+
+            with col_left:
+                st.markdown("### 📊 My Portfolio Configuration")
+                with st.expander("Portfolio Settings", expanded=True):
+                    total_investment = st.number_input(
+                        "Total Investment Amount ($)",
+                        min_value=1000.0,
+                        value=st.session_state.portfolio_config['total_investment'],
+                        step=1000.0,
+                        key='total_inv'
+                    )
+
+                    risk_tolerance = st.selectbox(
+                        "Risk Tolerance",
+                        ['Low', 'Moderate', 'High'],
+                        index=['Low', 'Moderate', 'High'].index(st.session_state.portfolio_config['risk_tolerance']),
+                        key='risk_tol'
+                    )
+
+                    time_horizon = st.selectbox(
+                        "Time Horizon",
+                        ['1-3 years', '3-7 years', '7-15 years', '15+ years'],
+                        index=['1-3 years', '3-7 years', '7-15 years', '15+ years'].index(st.session_state.portfolio_config['time_horizon']),
+                        key='time_hor'
+                    )
+
+                    st.markdown("**Asset Allocation (%)**")
+                    alloc_stocks = st.slider("Stocks", 0, 100, st.session_state.portfolio_config['allocations']['Stocks'], key='alloc_stocks')
+                    alloc_crypto = st.slider("Crypto", 0, 100, st.session_state.portfolio_config['allocations']['Crypto'], key='alloc_crypto')
+                    alloc_commodities = st.slider("Commodities", 0, 100, st.session_state.portfolio_config['allocations']['Commodities'], key='alloc_commodities')
+                    alloc_bonds = st.slider("Bonds", 0, 100, st.session_state.portfolio_config['allocations']['Bonds'], key='alloc_bonds')
+                    alloc_cash = st.slider("Cash", 0, 100, st.session_state.portfolio_config['allocations']['Cash'], key='alloc_cash')
+
+                    total_alloc = alloc_stocks + alloc_crypto + alloc_commodities + alloc_bonds + alloc_cash
+
+                    if total_alloc != 100:
+                        st.warning(f"⚠️ Total allocation: {total_alloc}% (should be 100%)")
+                        if st.button("🔄 Normalize to 100%"):
+                            if total_alloc > 0:
+                                factor = 100 / total_alloc
+                                st.session_state.portfolio_config['allocations'] = {
+                                    'Stocks': int(alloc_stocks * factor),
+                                    'Crypto': int(alloc_crypto * factor),
+                                    'Commodities': int(alloc_commodities * factor),
+                                    'Bonds': int(alloc_bonds * factor),
+                                    'Cash': int(alloc_cash * factor)
+                                }
+                                st.rerun()
+                    else:
+                        st.success("✅ Portfolio allocation: 100%")
+                        st.session_state.portfolio_config['allocations'] = {
+                            'Stocks': alloc_stocks,
+                            'Crypto': alloc_crypto,
+                            'Commodities': alloc_commodities,
+                            'Bonds': alloc_bonds,
+                            'Cash': alloc_cash
+                        }
+
+                    custom_tickers = st.text_input(
+                        "Custom Tickers (comma-separated)",
+                        value=st.session_state.portfolio_config['custom_tickers'],
+                        placeholder="AAPL, TSLA, MSFT",
+                        key='custom_tick'
+                    )
+
+                    st.session_state.portfolio_config['total_investment'] = total_investment
+                    st.session_state.portfolio_config['risk_tolerance'] = risk_tolerance
+                    st.session_state.portfolio_config['time_horizon'] = time_horizon
+                    st.session_state.portfolio_config['custom_tickers'] = custom_tickers
+
+                    st.info(f"ℹ️ {risk_tolerance} risk typically means {'higher volatility, higher returns' if risk_tolerance == 'High' else 'lower volatility, stable returns' if risk_tolerance == 'Low' else 'balanced growth and stability'}")
+
+            default_tickers = ['SPY', 'BTC-USD', 'ETH-USD', 'GC=F', 'BND']
+            custom_ticker_list = [t.strip().upper() for t in custom_tickers.split(',') if t.strip()]
+            all_tickers = list(set(default_tickers + custom_ticker_list))
+
+            market_data = FinancialFlows.fetch_market_data(all_tickers)
+
+            with col_right:
+                st.markdown("### 📈 Market Overview")
+
+                refresh_col1, refresh_col2 = st.columns([3, 1])
+                with refresh_col1:
+                    auto_refresh_interval = st.selectbox(
+                        "Auto-Refresh",
+                        ['Off', '10s', '30s', '60s'],
+                        index=['Off', '10s', '30s', '60s'].index(st.session_state.auto_refresh),
+                        key='auto_refresh_sel'
+                    )
+                    st.session_state.auto_refresh = auto_refresh_interval
+
+                with refresh_col2:
+                    if st.button("🔄 Refresh Data"):
+                        FinancialFlows.fetch_market_data.clear()
+                        st.rerun()
+
+                if st.session_state.auto_refresh != 'Off':
+                    interval_map = {'10s': 10, '30s': 30, '60s': 60}
+                    interval = interval_map[st.session_state.auto_refresh]
+                    time.sleep(interval)
+                    FinancialFlows.fetch_market_data.clear()
+                    st.rerun()
+
+                metric_cards_html = ""
+                sentiments = {'Bullish': 0, 'Neutral': 0, 'Bearish': 0}
+                top_movers = []
+
+                for ticker, data in market_data.items():
+                    history = data['history']
+                    info = data['info']
+
+                    if not history.empty:
+                        current_price = history['Close'].iloc[-1]
+                        prev_price = history['Close'].iloc[0]
+                        pct_change = ((current_price - prev_price) / prev_price * 100) if prev_price != 0 else 0
+
+                        sentiment_info = FinancialFlows.compute_sentiment_from_history(history)
+                        sentiment_label = sentiment_info['sentiment_label']
+                        sentiment_color = sentiment_info['color']
+
+                        if 'Bullish' in sentiment_label:
+                            sentiments['Bullish'] += 1
+                        elif 'Bearish' in sentiment_label:
+                            sentiments['Bearish'] += 1
+                        else:
+                            sentiments['Neutral'] += 1
+
+                        top_movers.append({
+                            'ticker': ticker,
+                            'pct_change': abs(pct_change),
+                            'direction': 'up' if pct_change > 0 else 'down'
+                        })
+
+                        arrow = "↗️" if pct_change > 0 else "↘️" if pct_change < 0 else "→"
+                        sparkline_data = history['Close'].tail(5).values.tolist()
+                        sparkline_str = ','.join([str(v) for v in sparkline_data])
+
+                        metric_cards_html += f'''
+                        <div class="metric-card" style="margin-bottom:10px;">
+                            <h4>{ticker}</h4>
+                            <h2 style="color:{sentiment_color}">${current_price:.2f}</h2>
+                            <p>{arrow} {pct_change:+.2f}% (5d)</p>
+                            <p style="font-size:0.8em;">Sentiment: <span style="color:{sentiment_color}">{sentiment_label}</span></p>
+                        </div>
+                        '''
+
+                st.markdown(metric_cards_html, unsafe_allow_html=True)
+
+            top_movers_sorted = sorted(top_movers, key=lambda x: x['pct_change'], reverse=True)[:3]
 
             st.markdown("---")
+            st.markdown("### 💰 Portfolio Allocation — Live Snapshot")
 
-            st.subheader("Demo Investment Allocation")
-            demo_investment = FinancialCalculator.calculate_investment_allocation('moderate', 20, 50000, 35)
+            allocations = st.session_state.portfolio_config['allocations']
+            total_inv = st.session_state.portfolio_config['total_investment']
 
-            col1, col2, col3, col4 = st.columns(4)
-            allocation = demo_investment['allocation_percentages']
-            with col1:
-                st.markdown(display_metric_card("Stocks", f"{allocation['stocks']}%", f"${demo_investment['allocation_dollars']['stocks']:,.0f}"), unsafe_allow_html=True)
-            with col2:
-                st.markdown(display_metric_card("Bonds", f"{allocation['bonds']}%", f"${demo_investment['allocation_dollars']['bonds']:,.0f}"), unsafe_allow_html=True)
-            with col3:
-                st.markdown(display_metric_card("Cash", f"{allocation['cash']}%", f"${demo_investment['allocation_dollars']['cash']:,.0f}"), unsafe_allow_html=True)
-            with col4:
-                st.markdown(display_metric_card("Expected Return", f"{demo_investment['expected_annual_return']:.1%}"), unsafe_allow_html=True)
+            asset_class_tickers = {
+                'Stocks': ['SPY'],
+                'Crypto': ['BTC-USD', 'ETH-USD'],
+                'Commodities': ['GC=F'],
+                'Bonds': ['BND'],
+                'Cash': []
+            }
 
-            investment_viz = FinancialVisualizer.plot_investment_allocation(demo_investment)
-            st.plotly_chart(investment_viz, use_container_width=True, config={"displayModeBar": False})
+            portfolio_values = {}
+            for asset_class, pct in allocations.items():
+                dollar_alloc = total_inv * (pct / 100)
+                portfolio_values[asset_class] = dollar_alloc
+
+            pie_fig = px.pie(
+                values=list(portfolio_values.values()),
+                names=list(portfolio_values.keys()),
+                title="Portfolio Allocation by Asset Class",
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            pie_fig.update_traces(
+                textposition='inside',
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>Value: $%{value:,.0f}<br>Percentage: %{percent}<extra></extra>'
+            )
+            pie_fig.update_layout(
+                height=400,
+                paper_bgcolor='#1f2937',
+                plot_bgcolor='#1f2937',
+                font_color='white',
+                showlegend=True
+            )
+            st.plotly_chart(pie_fig, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
+            st.markdown("### 📈 Market Trends — Last 5 Days")
 
-            st.subheader("Demo Retirement Projection")
-            demo_retirement = FinancialCalculator.calculate_retirement_needs(35, 65, 75000, 50000, 600)
+            trend_fig = go.Figure()
+            for ticker, data in market_data.items():
+                history = data['history']
+                if not history.empty:
+                    trend_fig.add_trace(go.Scatter(
+                        x=history.index,
+                        y=history['Close'],
+                        mode='lines',
+                        name=ticker,
+                        hovertemplate='<b>%{fullData.name}</b><br>Price: $%{y:.2f}<br>Time: %{x}<extra></extra>'
+                    ))
 
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.markdown(display_metric_card("Years to Retirement", str(demo_retirement['years_to_retirement'])), unsafe_allow_html=True)
-            with col2:
-                st.markdown(display_metric_card("Projected Savings", f"${demo_retirement['projected_savings']:,.0f}"), unsafe_allow_html=True)
-            with col3:
-                st.markdown(display_metric_card("Retirement Goal", f"${demo_retirement['retirement_corpus_needed']:,.0f}"), unsafe_allow_html=True)
-            with col4:
-                gap = demo_retirement['retirement_gap']
-                gap_color = "red" if gap > 0 else "green"
-                gap_text = f"${gap:,.0f}" if gap > 0 else "On Track!"
-                st.markdown(display_metric_card("Retirement Gap", gap_text, color=gap_color), unsafe_allow_html=True)
+            trend_fig.update_layout(
+                title="Multi-Asset Price Trends",
+                xaxis_title="Date/Time",
+                yaxis_title="Price ($)",
+                height=500,
+                paper_bgcolor='#1f2937',
+                plot_bgcolor='#1f2937',
+                font_color='white',
+                hovermode='x unified',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+            )
+            st.plotly_chart(trend_fig, use_container_width=True, config={"displayModeBar": False})
 
-            retirement_viz = FinancialVisualizer.plot_retirement_projections(demo_retirement)
-            st.plotly_chart(retirement_viz, use_container_width=True, config={"displayModeBar": False})
+            st.markdown("---")
+            st.markdown("### 🤖 AI Market Insight")
+
+            ai_payload = {
+                'top_movers': top_movers_sorted,
+                'portfolio_summary': {
+                    'total_value': total_inv,
+                    'allocations': allocations,
+                    'risk_tolerance': risk_tolerance,
+                    'time_horizon': time_horizon
+                },
+                'sentiment_summary': sentiments
+            }
+
+            ai_insights = generate_ai_insights(ai_payload, "Investment Analysis")
+            display_ai_suggestions(ai_insights, "Investment Analysis")
+
+            st.markdown("---")
+            with st.expander("📚 Market Fundamentals", expanded=False):
+                for ticker, data in market_data.items():
+                    info = data['info']
+                    history = data['history']
+
+                    if info or not history.empty:
+                        st.markdown(f"**{ticker}**")
+                        fund_cols = st.columns(4)
+
+                        with fund_cols[0]:
+                            market_cap = info.get('marketCap', 'N/A')
+                            if isinstance(market_cap, (int, float)):
+                                market_cap = f"${market_cap:,.0f}"
+                            st.metric("Market Cap", market_cap)
+
+                        with fund_cols[1]:
+                            pe_ratio = info.get('trailingPE', 'N/A')
+                            if isinstance(pe_ratio, (int, float)):
+                                pe_ratio = f"{pe_ratio:.2f}"
+                            st.metric("PE Ratio", pe_ratio)
+
+                        with fund_cols[2]:
+                            volume = info.get('volume', 'N/A')
+                            if isinstance(volume, (int, float)):
+                                volume = f"{volume:,.0f}"
+                            st.metric("Volume", volume)
+
+                        with fund_cols[3]:
+                            prev_close = info.get('previousClose', 'N/A')
+                            if isinstance(prev_close, (int, float)):
+                                prev_close = f"${prev_close:.2f}"
+                            st.metric("Prev Close", prev_close)
+
+                        st.markdown(f"**52W High:** {info.get('fiftyTwoWeekHigh', 'N/A')} | **52W Low:** {info.get('fiftyTwoWeekLow', 'N/A')}")
+                        st.markdown(f"**Sector:** {info.get('sector', 'N/A')} | **Industry:** {info.get('industry', 'N/A')}")
+                        st.markdown("---")
 
     @staticmethod
     def budgeting_flow():
