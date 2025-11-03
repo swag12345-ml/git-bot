@@ -378,16 +378,43 @@ def generate_ai_insights(data: Dict[str, Any], context_label: str) -> Dict[str, 
 
         elif context_label == "Investment Analysis":
             prompt = f"""
-            You are an expert investment advisor. Analyze this portfolio data.
+            You are an expert investment advisor with advanced portfolio analytics capabilities. Analyze this portfolio data thoroughly using real-time Yahoo Finance metrics.
 
-            Investment Data (JSON): {json.dumps(data, default=str)}
+            Portfolio Data (JSON): {json.dumps(data, default=str)}
 
             Tasks:
-            1. Provide an Investment Risk Score (0-100)
-            2. Give a brief 2-3 sentence explanation
-            3. Provide 3-5 specific portfolio improvement suggestions
+            1. Calculate a Portfolio Health Index (0-100) based on:
+               - Diversification across asset types and sectors
+               - Risk-adjusted returns (consider volatility and Sharpe ratios)
+               - Asset correlation and concentration risk
+               - Overall portfolio performance vs. benchmarks
+               - Appropriate risk level for portfolio size
+
+            2. Provide 3-4 sentences of expert analysis explaining:
+               - Portfolio strengths and weaknesses
+               - Risk assessment based on volatility and correlation metrics
+               - Performance evaluation relative to market conditions
+               - Diversification quality
+
+            3. Generate 7-10 data-driven, actionable recommendations including:
+               - Specific rebalancing suggestions with target percentages
+               - Over/under-weight asset classes based on current allocation
+               - Diversification opportunities to reduce correlation risk
+               - Risk management strategies based on volatility metrics
+               - Sector-specific insights and market outlook considerations
+               - Tax-loss harvesting opportunities if applicable
+               - Entry/exit strategies for specific holdings
+               - Alternative investments to consider for better diversification
+               - Portfolio hedging strategies during market uncertainty
+
+            4. Base recommendations on:
+               - Current market conditions and recent Yahoo Finance data
+               - Modern Portfolio Theory principles
+               - Risk-adjusted return optimization
+               - Correlation reduction strategies
 
             Output ONLY valid JSON with keys: ai_score, ai_reasoning, ai_recommendations
+            Example: {{"ai_score": 72, "ai_reasoning": "Your portfolio shows...", "ai_recommendations": ["Reduce tech exposure by 10%...", "Add bonds for stability...", ...]}}
             """
 
         elif context_label == "Debt Analysis":
@@ -1905,6 +1932,8 @@ class FinancialFlows:
         with col_refresh:
             if st.button("🔄 Refresh Data", key="refresh_portfolio"):
                 st.session_state.last_refresh = datetime.now()
+                if 'portfolio_ai_insights' in st.session_state:
+                    del st.session_state.portfolio_ai_insights
                 st.rerun()
 
         if st.session_state.last_refresh:
@@ -2091,7 +2120,84 @@ class FinancialFlows:
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
 
             st.markdown("---")
-            st.subheader("Step 4: Asset-Class Performance Breakdown")
+            st.subheader("Step 4: Sector & Industry Analysis")
+
+            sector_data = []
+            for holding in st.session_state.portfolio_holdings:
+                if holding['type'] in ['Stock', 'ETF']:
+                    try:
+                        ticker = yf.Ticker(holding['symbol'])
+                        info = ticker.info
+                        sector = info.get('sector', 'Unknown')
+                        industry = info.get('industry', 'Unknown')
+
+                        asset_data = next((item for item in portfolio_data if item['symbol'] == holding['symbol']), None)
+                        if asset_data:
+                            sector_data.append({
+                                'symbol': holding['symbol'],
+                                'sector': sector,
+                                'industry': industry,
+                                'value': asset_data['current_value'],
+                                'gain_loss_pct': asset_data['gain_loss_pct']
+                            })
+                    except:
+                        pass
+
+            if sector_data:
+                sector_df = pd.DataFrame(sector_data)
+                sector_allocation = sector_df.groupby('sector')['value'].sum().to_dict()
+
+                col_sector_pie, col_sector_bar = st.columns(2)
+
+                with col_sector_pie:
+                    fig_sector = go.Figure(data=[go.Pie(
+                        labels=list(sector_allocation.keys()),
+                        values=list(sector_allocation.values()),
+                        hole=0.4,
+                        textposition='inside',
+                        textinfo='percent+label'
+                    )])
+                    fig_sector.update_layout(
+                        title="Portfolio by Sector",
+                        height=400,
+                        paper_bgcolor='#1f2937',
+                        plot_bgcolor='#1f2937',
+                        font_color='white',
+                        showlegend=True
+                    )
+                    st.plotly_chart(fig_sector, use_container_width=True, config={"displayModeBar": False})
+
+                with col_sector_bar:
+                    sector_performance = sector_df.groupby('sector')['gain_loss_pct'].mean().to_dict()
+
+                    fig_sector_perf = go.Figure(data=[go.Bar(
+                        x=list(sector_performance.keys()),
+                        y=list(sector_performance.values()),
+                        marker_color=['green' if v >= 0 else 'red' for v in sector_performance.values()]
+                    )])
+                    fig_sector_perf.update_layout(
+                        title="Average Return by Sector",
+                        xaxis_title="Sector",
+                        yaxis_title="Return (%)",
+                        height=400,
+                        paper_bgcolor='#1f2937',
+                        plot_bgcolor='#1f2937',
+                        font_color='white'
+                    )
+                    st.plotly_chart(fig_sector_perf, use_container_width=True, config={"displayModeBar": False})
+
+                top_sector = max(sector_allocation.items(), key=lambda x: x[1])
+                sector_concentration = (top_sector[1] / sum(sector_allocation.values()) * 100) if sum(sector_allocation.values()) > 0 else 0
+
+                if sector_concentration > 40:
+                    st.warning(f"⚠️ High concentration risk: {top_sector[0]} represents {sector_concentration:.1f}% of your stock holdings. Consider diversifying across sectors.")
+                elif sector_concentration > 30:
+                    st.info(f"💡 {top_sector[0]} is your largest sector at {sector_concentration:.1f}%. Monitor for concentration risk.")
+                else:
+                    st.success(f"✅ Good sector diversification. Largest sector ({top_sector[0]}) is {sector_concentration:.1f}%.")
+
+            st.markdown("---")
+            st.subheader("Step 5: Asset-Class Performance Breakdown")
 
             col_pie, col_bar = st.columns(2)
 
@@ -2135,7 +2241,7 @@ class FinancialFlows:
                 st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
-            st.subheader("Step 5: Technical Analysis")
+            st.subheader("Step 6: Technical Analysis")
 
             selected_symbol = st.selectbox(
                 "Select Asset for Detailed Analysis",
@@ -2277,7 +2383,7 @@ class FinancialFlows:
                     st.error(f"Error fetching technical data: {str(e)}")
 
             st.markdown("---")
-            st.subheader("Step 6: Global Market Benchmarks")
+            st.subheader("Step 7: Global Market Benchmarks")
 
             benchmarks = {
                 'S&P 500': '^GSPC',
@@ -2318,30 +2424,137 @@ class FinancialFlows:
                         ), unsafe_allow_html=True)
 
             st.markdown("---")
-            st.subheader("Step 7: AI Portfolio Insights")
+            st.subheader("Step 8: Portfolio Correlation Matrix & Risk Analysis")
 
-            if st.button("🤖 Generate AI Insights", type="primary", key="generate_ai_insights"):
-                with st.spinner("Analyzing your portfolio with LLaMA..."):
-                    portfolio_analysis_data = {
-                        'total_value': total_portfolio_value,
-                        'total_invested': total_invested,
-                        'total_gain_loss': total_gain_loss,
-                        'total_gain_loss_pct': total_gain_loss_pct,
-                        'holdings': portfolio_data,
-                        'asset_allocation': type_allocation,
-                        'num_assets': num_assets,
-                        'num_types': num_types
-                    }
+            if len(portfolio_data) > 1:
+                try:
+                    correlation_data = []
+                    symbols = [asset['symbol'] for asset in portfolio_data]
 
-                    ai_insights = generate_ai_insights(portfolio_analysis_data, "Investment Analysis")
-                    st.session_state.portfolio_ai_insights = ai_insights
-                    st.rerun()
+                    for symbol in symbols:
+                        ticker = yf.Ticker(symbol)
+                        hist = ticker.history(period="3mo")
+                        if not hist.empty:
+                            returns = hist['Close'].pct_change().dropna()
+                            correlation_data.append(returns)
+
+                    if len(correlation_data) > 1:
+                        corr_df = pd.DataFrame({symbols[i]: correlation_data[i] for i in range(len(symbols))})
+
+                        for i in range(len(corr_df.columns)):
+                            for j in range(i+1, len(corr_df.columns)):
+                                corr_df.iloc[:, [i, j]] = corr_df.iloc[:, [i, j]].dropna()
+
+                        min_length = min([len(corr_df[col].dropna()) for col in corr_df.columns])
+                        corr_df = corr_df.tail(min_length)
+
+                        correlation_matrix = corr_df.corr()
+
+                        fig_corr = go.Figure(data=go.Heatmap(
+                            z=correlation_matrix.values,
+                            x=correlation_matrix.columns,
+                            y=correlation_matrix.columns,
+                            colorscale='RdYlGn',
+                            zmid=0,
+                            text=correlation_matrix.values,
+                            texttemplate='%{text:.2f}',
+                            textfont={"size": 10},
+                            colorbar=dict(title="Correlation")
+                        ))
+
+                        fig_corr.update_layout(
+                            title="Asset Correlation Matrix (3-Month Returns)",
+                            height=500,
+                            paper_bgcolor='#1f2937',
+                            plot_bgcolor='#1f2937',
+                            font_color='white'
+                        )
+
+                        st.plotly_chart(fig_corr, use_container_width=True, config={"displayModeBar": False})
+
+                        avg_correlation = correlation_matrix.values[np.triu_indices_from(correlation_matrix.values, k=1)].mean()
+
+                        col_corr1, col_corr2, col_corr3 = st.columns(3)
+
+                        with col_corr1:
+                            diversification_score = max(0, (1 - avg_correlation) * 100)
+                            st.markdown(display_metric_card(
+                                "Diversification Score",
+                                f"{diversification_score:.1f}/100",
+                                "Based on correlation"
+                            ), unsafe_allow_html=True)
+
+                        with col_corr2:
+                            st.markdown(display_metric_card(
+                                "Avg Correlation",
+                                f"{avg_correlation:.2f}",
+                                "Lower is better"
+                            ), unsafe_allow_html=True)
+
+                        with col_corr3:
+                            portfolio_volatility = 0
+                            for i, asset in enumerate(portfolio_data):
+                                weight = asset['current_value'] / total_portfolio_value if total_portfolio_value > 0 else 0
+                                returns = correlation_data[i]
+                                vol = returns.std() * np.sqrt(252) * 100
+                                portfolio_volatility += (weight * vol)
+
+                            st.markdown(display_metric_card(
+                                "Portfolio Volatility",
+                                f"{portfolio_volatility:.2f}%",
+                                "Annualized"
+                            ), unsafe_allow_html=True)
+
+                except Exception as e:
+                    st.warning(f"Could not calculate correlation matrix: {str(e)}")
+            else:
+                st.info("Add at least 2 assets to see correlation analysis")
+
+            st.markdown("---")
+            st.subheader("Step 9: 🤖 AI Portfolio Insights")
+
+            col_ai_button, col_ai_status = st.columns([1, 3])
+            with col_ai_button:
+                if st.button("🤖 Generate AI Insights", type="primary", key="generate_ai_insights"):
+                    with st.spinner("Analyzing your portfolio with LLaMA..."):
+                        portfolio_returns = []
+                        for asset in portfolio_data:
+                            portfolio_returns.append({
+                                'symbol': asset['symbol'],
+                                'type': asset['type'],
+                                'gain_loss_pct': asset['gain_loss_pct'],
+                                'weight': asset['current_value'] / total_portfolio_value if total_portfolio_value > 0 else 0
+                            })
+
+                        portfolio_analysis_data = {
+                            'total_value': total_portfolio_value,
+                            'total_invested': total_invested,
+                            'total_gain_loss': total_gain_loss,
+                            'total_gain_loss_pct': total_gain_loss_pct,
+                            'holdings': portfolio_data,
+                            'asset_allocation': type_allocation,
+                            'num_assets': num_assets,
+                            'num_types': num_types,
+                            'portfolio_returns': portfolio_returns,
+                            'avg_correlation': avg_correlation if len(portfolio_data) > 1 else 0,
+                            'portfolio_volatility': portfolio_volatility if len(portfolio_data) > 1 else 0
+                        }
+
+                        ai_insights = generate_ai_insights(portfolio_analysis_data, "Investment Analysis")
+                        st.session_state.portfolio_ai_insights = ai_insights
+                        st.rerun()
+
+            with col_ai_status:
+                if 'portfolio_ai_insights' not in st.session_state:
+                    st.caption("💡 Click to get AI-powered portfolio analysis and rebalancing recommendations")
+                else:
+                    st.caption("✅ AI insights generated - scroll down to view analysis")
 
             if 'portfolio_ai_insights' in st.session_state and st.session_state.portfolio_ai_insights:
                 display_ai_suggestions(st.session_state.portfolio_ai_insights, "Investment Analysis")
 
             st.markdown("---")
-            st.subheader("Step 8: Portfolio News Feed")
+            st.subheader("Step 10: Portfolio News Feed")
 
             news_data = []
             for holding in st.session_state.portfolio_holdings[:5]:
