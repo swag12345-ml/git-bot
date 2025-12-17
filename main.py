@@ -19,7 +19,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import time
 from typing import Dict, List, Tuple
 import json
 
@@ -176,9 +175,6 @@ def initialize_session_state():
     if 'cash_balance' not in st.session_state:
         st.session_state.cash_balance = 10000.0
 
-    if 'refresh_interval' not in st.session_state:
-        st.session_state.refresh_interval = 'Off'
-
     if 'use_mock_data' not in st.session_state:
         st.session_state.use_mock_data = False
 
@@ -193,6 +189,12 @@ def initialize_session_state():
             'Healthcare': 10,
             'Cash': 5
         }
+
+    if 'monte_carlo_results' not in st.session_state:
+        st.session_state.monte_carlo_results = None
+
+    if 'monte_carlo_params' not in st.session_state:
+        st.session_state.monte_carlo_params = {'days': 252, 'simulations': 1000}
 
 def get_mock_data(ticker: str) -> Dict:
     """Generate mock data for testing"""
@@ -538,22 +540,22 @@ def create_sparkline(history: pd.DataFrame, height: int = 40) -> go.Figure:
 
     return fig
 
+@st.cache_data(show_spinner=False)
 def monte_carlo_simulation(
     holdings_data: List[Dict],
     days: int = 252,
-    simulations: int = 1000
+    simulations: int = 1000,
+    _cache_key: str = ""
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Run Monte Carlo simulation for portfolio forecast"""
 
     returns_list = []
     weights = []
 
-    # Total portfolio value (safe)
     total_value = sum(h['current_value'] for h in holdings_data)
     if total_value == 0:
         return np.array([]), np.array([])
 
-    # Collect returns and weights
     for h in holdings_data:
         hist = h.get('history')
         if hist is not None and not hist.empty and len(hist) > 2:
@@ -564,12 +566,10 @@ def monte_carlo_simulation(
     if not returns_list:
         return np.array([]), np.array([])
 
-    # 🔑 Align return lengths to avoid NumPy errors
     min_len = min(len(r) for r in returns_list)
     aligned_returns = np.array([r[-min_len:] for r in returns_list])
     weights = np.array(weights)
 
-    # Portfolio daily return series
     portfolio_returns = np.dot(weights, aligned_returns)
 
     mean_return = np.mean(portfolio_returns)
@@ -719,26 +719,29 @@ def render_portfolio_tab(metrics: Dict):
     st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.markdown("#### Add New Holding")
-    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
 
-    with col1:
-        new_ticker = st.text_input("Ticker Symbol", key="new_ticker")
-    with col2:
-        new_quantity = st.number_input("Quantity", min_value=1, value=1, key="new_quantity")
-    with col3:
-        new_avg_cost = st.number_input("Avg Cost", min_value=0.01, value=100.0, key="new_avg_cost")
-    with col4:
-        st.write("")
-        st.write("")
-        if st.button("Add Holding", type="primary"):
-            if new_ticker:
-                st.session_state.portfolio.append({
-                    'ticker': new_ticker.upper(),
-                    'quantity': new_quantity,
-                    'avg_cost': new_avg_cost
-                })
-                st.success(f"Added {new_ticker.upper()} to portfolio!")
-                st.rerun()
+    with st.form("add_holding_form"):
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+
+        with col1:
+            new_ticker = st.text_input("Ticker Symbol", key="new_ticker_form")
+        with col2:
+            new_quantity = st.number_input("Quantity", min_value=1, value=1, key="new_quantity_form")
+        with col3:
+            new_avg_cost = st.number_input("Avg Cost", min_value=0.01, value=100.0, key="new_avg_cost_form")
+        with col4:
+            st.write("")
+            st.write("")
+            submitted = st.form_submit_button("Add Holding", type="primary")
+
+        if submitted and new_ticker:
+            st.session_state.portfolio.append({
+                'ticker': new_ticker.upper(),
+                'quantity': new_quantity,
+                'avg_cost': new_avg_cost
+            })
+            st.success(f"Added {new_ticker.upper()} to portfolio!")
+            st.rerun()
 
     st.markdown("---")
 
@@ -761,17 +764,22 @@ def render_watchlist_tab():
     """Render watchlist tab"""
     st.subheader("👀 Watchlist")
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        new_watch_ticker = st.text_input("Add ticker to watchlist", key="new_watch")
-    with col2:
-        st.write("")
-        st.write("")
-        if st.button("Add to Watchlist", type="primary"):
-            if new_watch_ticker and new_watch_ticker.upper() not in st.session_state.watchlist:
+    with st.form("add_watchlist_form"):
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            new_watch_ticker = st.text_input("Add ticker to watchlist", key="new_watch_form")
+        with col2:
+            st.write("")
+            st.write("")
+            submitted = st.form_submit_button("Add to Watchlist", type="primary")
+
+        if submitted and new_watch_ticker:
+            if new_watch_ticker.upper() not in st.session_state.watchlist:
                 st.session_state.watchlist.append(new_watch_ticker.upper())
                 st.success(f"Added {new_watch_ticker.upper()} to watchlist!")
                 st.rerun()
+            else:
+                st.warning(f"{new_watch_ticker.upper()} is already in watchlist")
 
     st.markdown("---")
 
@@ -843,18 +851,30 @@ def render_analytics_tab(metrics: Dict):
     col1, col2 = st.columns([1, 3])
 
     with col1:
-        sim_days = st.slider("Forecast Days", 30, 365, 252)
-        sim_runs = st.slider("Simulations", 100, 5000, 1000, step=100)
+        with st.form("monte_carlo_form"):
+            sim_days = st.slider("Forecast Days", 30, 365, st.session_state.monte_carlo_params['days'])
+            sim_runs = st.slider("Simulations", 100, 5000, st.session_state.monte_carlo_params['simulations'], step=100)
 
-        if st.button("Run Simulation", type="primary"):
-            with st.spinner("Running simulation..."):
-                days, simulations = monte_carlo_simulation(metrics['holdings'], sim_days, sim_runs)
-                if len(simulations) > 0:
-                    st.session_state.monte_carlo_results = (days, simulations)
+            submitted = st.form_submit_button("Run Simulation", type="primary")
+
+            if submitted:
+                st.session_state.monte_carlo_params = {'days': sim_days, 'simulations': sim_runs}
+
+                with st.spinner("Running simulation..."):
+                    cache_key = f"{sim_days}_{sim_runs}_{datetime.now().strftime('%Y%m%d')}"
+                    days, simulations = monte_carlo_simulation(
+                        metrics['holdings'],
+                        sim_days,
+                        sim_runs,
+                        _cache_key=cache_key
+                    )
+                    if len(simulations) > 0:
+                        st.session_state.monte_carlo_results = (days, simulations, metrics['total_value'])
+                        st.success("Simulation complete!")
 
     with col2:
-        if 'monte_carlo_results' in st.session_state:
-            days, simulations = st.session_state.monte_carlo_results
+        if st.session_state.monte_carlo_results is not None:
+            days, simulations, portfolio_value = st.session_state.monte_carlo_results
             st.plotly_chart(create_monte_carlo_chart(days, simulations), use_container_width=True)
 
             final_values = simulations[:, -1]
@@ -863,8 +883,10 @@ def render_analytics_tab(metrics: Dict):
             - 10th Percentile: ${np.percentile(final_values, 10):,.2f}
             - 50th Percentile (Median): ${np.percentile(final_values, 50):,.2f}
             - 90th Percentile: ${np.percentile(final_values, 90):,.2f}
-            - Expected Return: {((np.mean(final_values) / metrics['total_value']) - 1) * 100:.2f}%
+            - Expected Return: {((np.mean(final_values) / portfolio_value) - 1) * 100:.2f}%
             """)
+        else:
+            st.info("Click 'Run Simulation' to generate Monte Carlo forecast")
 
 def render_rebalancing_tab(metrics: Dict):
     """Render rebalancing tab"""
@@ -913,14 +935,20 @@ def render_rebalancing_tab(metrics: Dict):
     st.markdown("---")
     st.subheader("Set Target Allocation")
 
-    for sector in st.session_state.target_allocation.keys():
-        st.session_state.target_allocation[sector] = st.slider(
-            sector,
-            0,
-            100,
-            int(st.session_state.target_allocation[sector]),
-            key=f"target_{sector}"
-        )
+    with st.form("target_allocation_form"):
+        for sector in st.session_state.target_allocation.keys():
+            new_value = st.slider(
+                sector,
+                0,
+                100,
+                int(st.session_state.target_allocation[sector]),
+                key=f"target_{sector}"
+            )
+            st.session_state.target_allocation[sector] = new_value
+
+        submitted = st.form_submit_button("Update Target Allocation", type="primary")
+        if submitted:
+            st.success("Target allocation updated!")
 
 def render_settings_tab():
     """Render settings tab"""
@@ -930,30 +958,23 @@ def render_settings_tab():
 
     with col1:
         st.markdown("#### Data Source")
-        use_mock = st.checkbox("Use Mock Data", value=st.session_state.use_mock_data)
+        use_mock = st.checkbox("Use Mock Data", value=st.session_state.use_mock_data, key="use_mock_checkbox")
         if use_mock != st.session_state.use_mock_data:
             st.session_state.use_mock_data = use_mock
-            st.rerun()
-
-        st.markdown("#### Auto-Refresh")
-        refresh_options = ['Off', '10 seconds', '30 seconds', '1 minute']
-        refresh_interval = st.selectbox(
-            "Refresh Interval",
-            refresh_options,
-            index=refresh_options.index(st.session_state.refresh_interval)
-        )
-        if refresh_interval != st.session_state.refresh_interval:
-            st.session_state.refresh_interval = refresh_interval
 
         st.markdown("#### Cash Balance")
-        new_cash = st.number_input(
-            "Available Cash",
-            min_value=0.0,
-            value=st.session_state.cash_balance,
-            step=100.0
-        )
-        if new_cash != st.session_state.cash_balance:
-            st.session_state.cash_balance = new_cash
+        with st.form("cash_balance_form"):
+            new_cash = st.number_input(
+                "Available Cash",
+                min_value=0.0,
+                value=st.session_state.cash_balance,
+                step=100.0,
+                key="cash_input"
+            )
+            submitted = st.form_submit_button("Update Cash Balance", type="primary")
+            if submitted:
+                st.session_state.cash_balance = new_cash
+                st.success("Cash balance updated!")
 
     with col2:
         st.markdown("#### Export Options")
@@ -970,8 +991,10 @@ def render_settings_tab():
             )
 
         st.markdown("#### Danger Zone")
-        if st.button("🗑️ Clear Portfolio", type="secondary"):
-            if st.checkbox("Are you sure?"):
+        with st.form("clear_portfolio_form"):
+            confirm = st.checkbox("I understand this action cannot be undone")
+            submitted = st.form_submit_button("🗑️ Clear Portfolio", type="secondary")
+            if submitted and confirm:
                 st.session_state.portfolio = []
                 st.success("Portfolio cleared!")
                 st.rerun()
@@ -980,30 +1003,18 @@ def main():
     """Main application"""
     initialize_session_state()
 
-    refresh_mapping = {
-        'Off': None,
-        '10 seconds': 10,
-        '30 seconds': 30,
-        '1 minute': 60
-    }
-
-    refresh_interval = refresh_mapping.get(st.session_state.refresh_interval)
-
-    if refresh_interval:
-        time.sleep(0.1)
-        st.session_state.last_update = datetime.now()
-
     metrics = calculate_portfolio_metrics(st.session_state.portfolio, st.session_state.use_mock_data)
 
     render_header(metrics)
 
     st.sidebar.title("Navigation")
     tabs = ["Portfolio", "Watchlist", "Analytics", "Rebalancing", "Settings"]
-    selected_tab = st.sidebar.radio("Go to", tabs)
+    selected_tab = st.sidebar.radio("Go to", tabs, key="nav_radio")
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Quick Actions")
     if st.sidebar.button("🔄 Refresh Data"):
+        st.session_state.last_update = datetime.now()
         st.cache_data.clear()
         st.rerun()
 
@@ -1011,8 +1022,8 @@ def main():
         st.sidebar.info("Chart export feature - click individual charts to download")
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown(f"**Auto-refresh:** {st.session_state.refresh_interval}")
     st.sidebar.markdown(f"**Data Mode:** {'Mock' if st.session_state.use_mock_data else 'Live'}")
+    st.sidebar.markdown(f"**Portfolio Holdings:** {len(st.session_state.portfolio)}")
 
     if selected_tab == "Portfolio":
         render_portfolio_tab(metrics)
@@ -1031,10 +1042,6 @@ def main():
         <p>© 2025 Real-Time Investment Portfolio Dashboard</p>
     </div>
     """, unsafe_allow_html=True)
-
-    if refresh_interval:
-        time.sleep(refresh_interval)
-        st.rerun()
 
 if __name__ == "__main__":
     main()
