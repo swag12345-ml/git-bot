@@ -538,33 +538,52 @@ def create_sparkline(history: pd.DataFrame, height: int = 40) -> go.Figure:
 
     return fig
 
-def monte_carlo_simulation(holdings_data: List[Dict], days: int = 252, simulations: int = 1000) -> Tuple[np.ndarray, np.ndarray]:
+def monte_carlo_simulation(
+    holdings_data: List[Dict],
+    days: int = 252,
+    simulations: int = 1000
+) -> Tuple[np.ndarray, np.ndarray]:
     """Run Monte Carlo simulation for portfolio forecast"""
-    portfolio_returns = []
 
-    for h in holdings_data:
-        if not h['history'].empty and len(h['history']) > 1:
-            returns = h['history']['Close'].pct_change().dropna()
-            weight = h['current_value'] / sum([x['current_value'] for x in holdings_data])
-            portfolio_returns.append(returns.values * weight)
+    returns_list = []
+    weights = []
 
-    if not portfolio_returns:
+    # Total portfolio value (safe)
+    total_value = sum(h['current_value'] for h in holdings_data)
+    if total_value == 0:
         return np.array([]), np.array([])
 
-    combined_returns = np.sum(portfolio_returns, axis=0)
-    mean_return = np.mean(combined_returns)
-    std_return = np.std(combined_returns)
+    # Collect returns and weights
+    for h in holdings_data:
+        hist = h.get('history')
+        if hist is not None and not hist.empty and len(hist) > 2:
+            r = hist['Close'].pct_change().dropna().values
+            returns_list.append(r)
+            weights.append(h['current_value'] / total_value)
 
-    initial_value = sum([h['current_value'] for h in holdings_data])
+    if not returns_list:
+        return np.array([]), np.array([])
 
+    # 🔑 Align return lengths to avoid NumPy errors
+    min_len = min(len(r) for r in returns_list)
+    aligned_returns = np.array([r[-min_len:] for r in returns_list])
+    weights = np.array(weights)
+
+    # Portfolio daily return series
+    portfolio_returns = np.dot(weights, aligned_returns)
+
+    mean_return = np.mean(portfolio_returns)
+    std_return = np.std(portfolio_returns)
+
+    initial_value = total_value
     simulation_results = np.zeros((simulations, days))
 
     for i in range(simulations):
         daily_returns = np.random.normal(mean_return, std_return, days)
-        price_path = initial_value * np.cumprod(1 + daily_returns)
-        simulation_results[i] = price_path
+        simulation_results[i] = initial_value * np.cumprod(1 + daily_returns)
 
     return np.arange(days), simulation_results
+
 
 def create_monte_carlo_chart(days: np.ndarray, simulations: np.ndarray) -> go.Figure:
     """Create Monte Carlo simulation chart"""
