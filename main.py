@@ -19,6 +19,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Tuple
 import json
 
@@ -155,8 +156,55 @@ CUSTOM_CSS = """
         height: 40px;
         margin-top: 0.5rem;
     }
+
+    .market-status {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-left: 1rem;
+    }
+
+    .market-open {
+        background: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+    }
+
+    .market-closed {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+    }
 </style>
 """
+
+IST = ZoneInfo('Asia/Kolkata')
+US_EASTERN = ZoneInfo('America/New_York')
+
+def get_ist_now() -> datetime:
+    """Get current time in IST timezone"""
+    return datetime.now(IST)
+
+def convert_to_ist(dt: datetime) -> datetime:
+    """Convert any datetime to IST timezone"""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=US_EASTERN)
+    return dt.astimezone(IST)
+
+def get_market_status() -> str:
+    """Check if US market is open based on IST time"""
+    ist_now = get_ist_now()
+    us_now = ist_now.astimezone(US_EASTERN)
+
+    if us_now.weekday() >= 5:
+        return "CLOSED"
+
+    market_open = us_now.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = us_now.replace(hour=16, minute=0, second=0, microsecond=0)
+
+    if market_open <= us_now <= market_close:
+        return "OPEN"
+    return "CLOSED"
 
 def initialize_session_state():
     """Initialize session state variables"""
@@ -179,7 +227,7 @@ def initialize_session_state():
         st.session_state.use_mock_data = False
 
     if 'last_update' not in st.session_state:
-        st.session_state.last_update = datetime.now()
+        st.session_state.last_update = get_ist_now()
 
     if 'target_allocation' not in st.session_state:
         st.session_state.target_allocation = {
@@ -201,7 +249,7 @@ def get_mock_data(ticker: str) -> Dict:
     np.random.seed(hash(ticker) % 10000)
     base_price = np.random.uniform(50, 500)
 
-    dates = pd.date_range(end=datetime.now(), periods=180, freq='D')
+    dates = pd.date_range(end=get_ist_now(), periods=180, freq='D', tz=IST)
     prices = base_price * (1 + np.cumsum(np.random.randn(180) * 0.02))
 
     current_price = prices[-1]
@@ -240,6 +288,10 @@ def fetch_stock_data(ticker: str, use_mock: bool = False) -> Dict:
 
         if hist.empty:
             return get_mock_data(ticker)
+
+        if hist.index.tzinfo is None:
+            hist.index = hist.index.tz_localize(US_EASTERN)
+        hist.index = hist.index.tz_convert(IST)
 
         current_price = info.get('currentPrice', hist['Close'].iloc[-1])
         prev_close = info.get('previousClose', hist['Close'].iloc[-2] if len(hist) > 1 else current_price)
@@ -327,20 +379,17 @@ def create_portfolio_performance_chart(holdings_data: List[Dict]) -> go.Figure:
         min_dates = [h['history'].index.min() for h in holdings_data if not h['history'].empty]
         if min_dates:
             min_date = min(min_dates)
-            if hasattr(min_date, 'tz_localize'):
-                min_date = pd.Timestamp(min_date).tz_localize(None)
-            else:
-                min_date = pd.Timestamp(min_date)
+            min_date = pd.Timestamp(min_date).tz_convert(IST) if min_date.tzinfo else pd.Timestamp(min_date).tz_localize(IST)
 
-            now = pd.Timestamp.now()
-            date_range = pd.date_range(start=min_date, end=now, freq='D')
+            now = get_ist_now()
+            date_range = pd.date_range(start=min_date.tz_localize(None), end=now.replace(tzinfo=None), freq='D')
 
             for date in date_range:
                 daily_value = 0
                 for holding in holdings_data:
                     if not holding['history'].empty:
                         hist = holding['history']
-                        hist_index = hist.index.tz_localize(None) if hasattr(hist.index, 'tz_localize') else hist.index
+                        hist_index = hist.index.tz_localize(None) if hist.index.tzinfo else hist.index
 
                         try:
                             if date in hist_index:
@@ -658,10 +707,14 @@ def render_header(metrics: Dict):
     """Render dashboard header with key metrics"""
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+    market_status = get_market_status()
+    status_class = "market-open" if market_status == "OPEN" else "market-closed"
+
     st.markdown(f"""
     <div class="main-header">
         <h1>📈 Real-Time Investment Portfolio Dashboard</h1>
-        <p>Last Updated: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p>Last Updated: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S IST')}
+        <span class="market-status {status_class}">US Market: {market_status}</span></p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -861,7 +914,7 @@ def render_analytics_tab(metrics: Dict):
                 st.session_state.monte_carlo_params = {'days': sim_days, 'simulations': sim_runs}
 
                 with st.spinner("Running simulation..."):
-                    cache_key = f"{sim_days}_{sim_runs}_{datetime.now().strftime('%Y%m%d')}"
+                    cache_key = f"{sim_days}_{sim_runs}_{get_ist_now().strftime('%Y%m%d')}"
                     days, simulations = monte_carlo_simulation(
                         metrics['holdings'],
                         sim_days,
@@ -986,7 +1039,7 @@ def render_settings_tab():
             st.download_button(
                 label="Download CSV",
                 data=csv,
-                file_name=f"portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"portfolio_{get_ist_now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
 
@@ -1014,7 +1067,7 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Quick Actions")
     if st.sidebar.button("🔄 Refresh Data"):
-        st.session_state.last_update = datetime.now()
+        st.session_state.last_update = get_ist_now()
         st.cache_data.clear()
         st.rerun()
 
