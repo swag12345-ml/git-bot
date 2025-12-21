@@ -1,4 +1,9 @@
 streamlit
+pandas
+plotly
+groq
+pypdf
+streamlit
 streamlit-autorefresh
 streamlit-pdf-viewer
 torch
