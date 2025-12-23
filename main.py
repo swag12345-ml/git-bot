@@ -1961,7 +1961,7 @@ Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reas
                 st.markdown("---")
                 st.markdown("## 🚀 Advanced Market Analytics")
 
-                ADVANCED_DASHBOARD_URL = "https://dashboard-bcmp6nu5yrwsgkpywwc634.streamlit.app/"
+                ADVANCED_DASHBOARD_URL = "https://iy7rfjz49gjqqxvoubvrcv.streamlit.app/"
 
                 st.markdown(
                     f"""
@@ -2537,3 +2537,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
