@@ -19,9 +19,14 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
-import yfinance as yf
+
 import json
 import time
+import yfinance as yf
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+
+
 
 # Test mode check
 TEST_MODE = "--test" in sys.argv
@@ -1891,116 +1896,129 @@ class FinancialFlows:
 
     @staticmethod
     def investing_flow():
-        """Real-Time Market News Dashboard with External Advanced Analytics Link"""
+        """Real-Time Individual Stock Charts with External Advanced Analytics Link"""
+
         if not TEST_MODE:
             st.markdown(
-                '<div class="flow-card"><h2>📈 Investment Market News</h2>'
-                '<p>Live financial news powered by Yahoo Finance</p></div>',
-                unsafe_allow_html=True
-            )
+            '<div class="flow-card">'
+            '<h2>📈 Investment Portfolio Builder</h2>'
+            '<p>Real-time individual stock charts</p>'
+            '</div>',
+            unsafe_allow_html=True
+        )
 
         if not TEST_MODE:
-            st.markdown("## 📰 Real-Time Market News")
+          st.markdown("## 📊 Individual Stock Charts")
 
-            import yfinance as yf
-            from datetime import datetime
+        import yfinance as yf
+        from datetime import datetime, timedelta
+        import plotly.graph_objects as go
 
-            NEWS_TICKERS = {
-                "Overall Market": "^GSPC",
-                "Apple": "AAPL",
-                "Microsoft": "MSFT",
-                "Tesla": "TSLA",
-                "NVIDIA": "NVDA"
-            }
+        # ---------------------------------------------
+        # 📈 STOCK LIST
+        # ---------------------------------------------
+        STOCKS = {
+            "Apple Inc.": "AAPL",
+            "Amazon.com Inc.": "AMZN",
+            "Tesla Inc.": "TSLA",
+            "Microsoft Corp.": "MSFT"
+        }
 
-            selected = st.selectbox("Select Market / Company", list(NEWS_TICKERS.keys()))
-            ticker = NEWS_TICKERS[selected]
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=120)
 
-            def render():
-                try:
-                    stock = yf.Ticker(ticker)
-                    news = stock.news
-                except Exception:
-                    news = []
+        # ---------------------------------------------
+        # 📉 RENDER STOCK CHARTS
+        # ---------------------------------------------
+        for company, ticker in STOCKS.items():
 
-                if not news:
-                    st.warning("Live market news unavailable at the moment.")
-                    return
+            data = yf.download(
+                ticker,
+                start=start_date,
+                end=end_date,
+                interval="1d",
+                progress=False
+            )
 
-                for item in news[:6]:
-                    title = item.get("title", "No title")
-                    publisher = item.get("publisher", "Unknown source")
-                    link = item.get("link", "#")
-                    ts = item.get("providerPublishTime")
+            if data.empty:
+                continue
 
-                    time_str = (
-                        datetime.fromtimestamp(ts).strftime("%d %b %Y, %I:%M %p")
-                        if ts else "Time unavailable"
-                    )
+            last_price = float(data["Close"].iloc[-1])
 
-                    st.markdown(
-                        f"""
-                        <div style="
-                            padding:16px;
-                            margin-bottom:14px;
-                            border-radius:14px;
-                            background:#111827;
-                            border:1px solid #374151;">
-                            <h4 style="color:white;">🗞️ {title}</h4>
-                            <p style="color:#9CA3AF;">
-                                {publisher} · {time_str}
-                            </p>
-                            <a href="{link}" target="_blank" style="color:#60A5FA;">
-                                Read full article →
-                            </a>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+            with st.expander(f"{ticker} – ${last_price:.2f}", expanded=(ticker == "AAPL")):
 
-                # ============================================
-                # 🚀 ADVANCED INVESTMENT DASHBOARD BUTTON
-                # ============================================
-                st.markdown("---")
-                st.markdown("## 🚀 Advanced Market Analytics")
-
-                ADVANCED_DASHBOARD_URL = "https://dashboard-bcmp6nu5yrwsgkpywwc634.streamlit.app/"
-
-                st.markdown(
-                    f"""
-                    <div style="
-                        padding:22px;
-                        border-radius:16px;
-                        background:linear-gradient(135deg,#1f2937,#020617);
-                        border:1px solid #374151;">
-                        <h3 style="color:white;">📊 Full Investment Dashboard</h3>
-                        <p style="color:#9CA3AF;">
-                            View real-time charts, advanced analytics,
-                            watchlists, and detailed market insights.
-                        </p>
-                        <a href="{ADVANCED_DASHBOARD_URL}" target="_blank">
-                            <button style="
-                                padding:12px 22px;
-                                font-size:16px;
-                                border:none;
-                                border-radius:12px;
-                                background:#4F46E5;
-                                color:white;
-                                cursor:pointer;">
-                                🔎 Open Advanced Dashboard
-                            </button>
-                        </a>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
+                fig = go.Figure(
+                    data=[
+                        go.Candlestick(
+                            x=data.index,
+                            open=data["Open"],
+                            high=data["High"],
+                            low=data["Low"],
+                            close=data["Close"],
+                            increasing_line_color="#22c55e",
+                            decreasing_line_color="#ef4444"
+                        )
+                    ]
                 )
 
-            render()
+                fig.update_layout(
+                    title=f"{ticker} Price Chart",
+                    height=450,
+                    margin=dict(l=30, r=30, t=50, b=30),
+                    paper_bgcolor="#0b0f16",
+                    plot_bgcolor="#0b0f16",
+                    font=dict(color="white"),
+                    xaxis_title="Date",
+                    yaxis_title="Price ($)",
+                    xaxis=dict(showgrid=False),
+                    yaxis=dict(showgrid=True, gridcolor="#1f2937")
+                )
 
-        if TEST_MODE:
-            return {"news_loaded": True}
+                st.plotly_chart(fig, use_container_width=True)
+
+        # =============================================
+        # 🚀 ADVANCED INVESTMENT DASHBOARD (UNCHANGED)
+        # =============================================
+        st.markdown("---")
+        st.markdown("## 🚀 Advanced Market Analytics")
+
+        ADVANCED_DASHBOARD_URL = (
+            "https://dashboard-bcmp6nu5yrwsgkpywwc634.streamlit.app/"
+        )
+
+        st.markdown(
+            f"""
+            <div style="
+                padding:20px;
+                border-radius:16px;
+                background:linear-gradient(135deg,#1f2937,#111827);
+                border:1px solid #374151;
+            ">
+                <h3 style="color:white;">📊 Full Investment Dashboard</h3>
+                <p style="color:#9CA3AF;">
+                    Explore real-time prices, watchlists, analytics,
+                    and advanced visualizations.
+                </p>
+                <a href="{ADVANCED_DASHBOARD_URL}" target="_blank">
+                    <button style="
+                        padding:12px 22px;
+                        font-size:16px;
+                        border:none;
+                        border-radius:12px;
+                        background:#4F46E5;
+                        color:white;
+                        cursor:pointer;
+                    ">
+                        🔎 Open Advanced Dashboard
+                    </button>
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         return None
+
 
 
 
