@@ -1894,21 +1894,23 @@ class FinancialFlows:
 
             return budget_summary
 
+
+
     @staticmethod
     def investing_flow():
         """Real-Time Individual Stock Charts with External Advanced Analytics Link"""
 
         if not TEST_MODE:
             st.markdown(
-            '<div class="flow-card">'
-            '<h2>📈 Investment Portfolio Builder</h2>'
-            '<p>Real-time individual stock charts</p>'
-            '</div>',
-            unsafe_allow_html=True
-        )
+                '<div class="flow-card">'
+                '<h2>📈 Investment Portfolio Builder</h2>'
+                '<p>Real-time individual stock charts</p>'
+                '</div>',
+                unsafe_allow_html=True
+            )
 
         if not TEST_MODE:
-          st.markdown("## 📊 Individual Stock Charts")
+            st.markdown("## 📊 Individual Stock Charts")
 
         import yfinance as yf
         from datetime import datetime, timedelta
@@ -1925,7 +1927,7 @@ class FinancialFlows:
         }
 
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=120)
+        start_date = end_date - timedelta(days=180)   # ✅ true ~6 months
 
         # ---------------------------------------------
         # 📉 RENDER STOCK CHARTS
@@ -1941,6 +1943,13 @@ class FinancialFlows:
             )
 
             if data.empty:
+                st.warning(f"No data for {ticker}")
+                continue
+
+            data = data.dropna(subset=["Open", "High", "Low", "Close"])
+
+            if len(data) < 10:
+                st.warning(f"Insufficient clean data for {ticker}")
                 continue
 
             last_price = float(data["Close"].iloc[-1])
@@ -1962,7 +1971,7 @@ class FinancialFlows:
                 )
 
                 fig.update_layout(
-                    title=f"{ticker} Price Chart",
+                    title=f"{ticker} Price Chart (6 Months)",
                     height=450,
                     margin=dict(l=30, r=30, t=50, b=30),
                     paper_bgcolor="#0b0f16",
@@ -1971,14 +1980,12 @@ class FinancialFlows:
                     xaxis_title="Date",
                     yaxis_title="Price ($)",
                     xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=True, gridcolor="#1f2937")
+                    yaxis=dict(showgrid=True, gridcolor="#1f2937"),
+                    xaxis_rangeslider_visible=False
                 )
 
                 st.plotly_chart(fig, use_container_width=True)
 
-        # =============================================
-        # 🚀 ADVANCED INVESTMENT DASHBOARD (UNCHANGED)
-        # =============================================
         st.markdown("---")
         st.markdown("## 🚀 Advanced Market Analytics")
 
@@ -2018,6 +2025,7 @@ class FinancialFlows:
         )
 
         return None
+
 
 
 
