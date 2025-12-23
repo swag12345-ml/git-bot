@@ -1924,7 +1924,7 @@ class FinancialFlows:
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")class FinancialFlows:
+                    debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")
 
     @staticmethod
     def investing_flow():
@@ -2580,3 +2580,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
