@@ -1927,15 +1927,20 @@ class FinancialFlows:
                     ticker,
                     period="5d",
                     interval="5m",
-                    progress=False
+                    progress=False,
+                    auto_adjust=True
                 )
 
-                if data.empty:
-                    st.warning("Market data unavailable.")
+                if data.empty or len(data) < 2:
+                    st.warning("Market data temporarily unavailable.")
                     return
 
-                price = data["Close"].iloc[-1]
-                prev = data["Close"].iloc[-2]
+                if data["Close"].isna().iloc[-1] or data["Close"].isna().iloc[-2]:
+                    st.warning("Live price data incomplete.")
+                    return
+
+                price = float(data["Close"].iloc[-1])
+                prev = float(data["Close"].iloc[-2])
                 change = price - prev
                 pct = (change / prev) * 100
 
@@ -1996,6 +2001,7 @@ class FinancialFlows:
             return {"ticker": "AAPL", "price": 150.0}
 
         return None
+
 
 
     @staticmethod
