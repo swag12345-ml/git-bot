@@ -19,14 +19,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
-
+import yfinance as yf
 import json
 import time
-import yfinance as yf
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-
-
 
 # Test mode check
 TEST_MODE = "--test" in sys.argv
@@ -1894,10 +1889,114 @@ class FinancialFlows:
 
             return budget_summary
 
+    @staticmethod
+    def investing_flow():
+        """AI-Powered Real-Time Portfolio Builder with live market data and LLAMA suggestions."""
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h2>📈 Investment Portfolio Builder</h2><p>AI-powered real-time dashboard with live market data.</p></div>', unsafe_allow_html=True)
 
+        if 'profile_data' not in st.session_state:
+            st.session_state.profile_data = {
+                'risk_profile': 'Moderate',
+                'time_horizon': 10,
+                'investment_capital': 10000.0,
+                'current_age': 35
+            }
 
+        if not TEST_MODE:
+            st.markdown("## 💼 AI-Powered Portfolio Builder")
+            override=st.checkbox("🔧 Manual override",False)
+            prof=st.session_state.profile_data
+            risk=prof.get("risk_profile","Moderate");yrs=prof.get("time_horizon",10)
+            cap=prof.get("investment_capital",10000.0);age=prof.get("current_age",35)
 
+            def render():
+                snap=get_market_snapshot()
+                st.markdown("### 🌍 Market Snapshot (5-Day Change)")
+                c1,c2,c3,c4,c5=st.columns(5)
+                for (n,v),c in zip(snap.items(),[c1,c2,c3,c4,c5]):
+                    c.metric(n,f"{v:+.2f}%", "⬆️" if v>0 else "⬇️")
 
+                if not override:
+                    st.markdown("### 🤖 AI Suggested Allocation")
+                    try:
+                        from langchain_groq import ChatGroq
+                        llm=ChatGroq(model="llama-3.3-70b-versatile",temperature=0.4,groq_api_key=groq_api_key)
+                        txt="\\n".join([f"{k}: {v:+.2f}%" for k,v in snap.items()])
+                        prompt=f"""You are an AI financial advisor.
+Based on live 5-day market data and user profile below,
+suggest a 100% allocation across Stocks, Bonds, Gold, Crypto, Cash + reasoning.
+
+Market Data: {txt}
+Risk Profile:{risk}  Time Horizon:{yrs}  Capital:${cap:,}  Age:{age}
+Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reasoning\":\"\"}}"""
+                        r=llm.invoke(prompt)
+                        try:
+                            sug=json.loads(r.content)
+                        except:
+                            sug={"Stocks":50,"Bonds":25,"Gold":10,"Crypto":5,"Cash":10,"Reasoning":"Default suggestion"}
+
+                        cols=st.columns(5)
+                        for i,k in enumerate(["Stocks","Bonds","Gold","Crypto","Cash"]):
+                            cols[i].metric(k,f"{sug[k]}%")
+
+                        st.info("💬 "+sug["Reasoning"])
+                        fig=go.Figure(data=[go.Pie(labels=list(sug.keys()),values=list(sug.values()),hole=0.4)])
+                        fig.update_layout(title="AI Portfolio Mix",height=340,paper_bgcolor='#1f2937',plot_bgcolor='#1f2937',font_color='white')
+                        st.plotly_chart(fig,use_container_width=True)
+
+                    except Exception as e:
+                        st.warning(f"AI analysis unavailable: {str(e)}")
+
+                else:
+                    st.warning("Manual mode enabled – adjust below (=100%)")
+                    s=st.slider("Stocks",0,100,50);b=st.slider("Bonds",0,100,25)
+                    g=st.slider("Gold",0,100,10);c=st.slider("Crypto",0,100,5);h=st.slider("Cash",0,100,10)
+                    tot=s+b+g+c+h
+                    st.success("✓ 100%" if tot==100 else f"⚠️ {tot}% (total)")
+
+                # ============================================
+                # 🚀 ADVANCED INVESTMENT DASHBOARD (NEW)
+                # ============================================
+                st.markdown("---")
+                st.markdown("## 🚀 Advanced Market Analytics")
+
+                ADVANCED_DASHBOARD_URL = "https://dashboard-bcmp6nu5yrwsgkpywwc634.streamlit.app/"
+
+                st.markdown(
+                    f"""
+                    <div style="padding:20px;border-radius:16px;
+                                background:linear-gradient(135deg,#1f2937,#111827);
+                                border:1px solid #374151;">
+                        <h3 style="color:white;">📊 Full Investment Dashboard</h3>
+                        <p style="color:#9CA3AF;">
+                            Explore real-time prices, watchlists, analytics,
+                            and advanced visualizations.
+                        </p>
+                        <a href="{ADVANCED_DASHBOARD_URL}" target="_blank">
+                            <button style="
+                                padding:12px 22px;
+                                font-size:16px;
+                                border:none;
+                                border-radius:12px;
+                                background:#4F46E5;
+                                color:white;
+                                cursor:pointer;">
+                                🔎 Open Advanced Dashboard
+                            </button>
+                        </a>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            render()
+
+        if TEST_MODE:
+            test_allocation = FinancialCalculator.calculate_investment_allocation('moderate', 15, 25000.0, 35)
+            return test_allocation
+
+        return None
 
 
     @staticmethod
@@ -1925,148 +2024,6 @@ class FinancialFlows:
 
                 with col1:
                     debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")
-
-    @staticmethod
-    def investing_flow():
-        """Real-Time Individual Stock Charts with External Advanced Analytics Link"""
-
-        if not TEST_MODE:
-            st.markdown(
-                '<div class="flow-card">'
-                '<h2>📈 Investment Portfolio Builder</h2>'
-                '<p>Real-time individual stock charts</p>'
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-        if not TEST_MODE:
-            st.markdown("## 📊 Individual Stock Charts")
-
-        import yfinance as yf
-        from datetime import datetime, timedelta
-        import plotly.graph_objects as go
-
-        # ---------------------------------------------
-        # 📈 STOCK LIST
-        # ---------------------------------------------
-        STOCKS = {
-            "Apple Inc.": "AAPL",
-            "Amazon.com Inc.": "AMZN",
-            "Tesla Inc.": "TSLA",
-            "Microsoft Corp.": "MSFT"
-        }
-
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=180)   # ✅ true ~6 months
-
-        # ---------------------------------------------
-        # 📉 RENDER STOCK CHARTS
-        # ---------------------------------------------
-        for company, ticker in STOCKS.items():
-
-            data = yf.download(
-                ticker,
-                start=start_date,
-                end=end_date,
-                interval="1d",
-                progress=False
-            )
-
-            # ✅ FIX: FLATTEN MULTI-INDEX COLUMNS
-            if hasattr(data.columns, "levels"):
-                data.columns = data.columns.get_level_values(0)
-
-            if data.empty:
-                st.warning(f"No data for {ticker}")
-                continue
-
-            # ✅ CLEAN OHLC DATA
-            data = data.dropna(subset=["Open", "High", "Low", "Close"])
-
-            if len(data) < 10:
-                st.warning(f"Insufficient clean data for {ticker}")
-                continue
-
-            last_price = float(data["Close"].iloc[-1])
-
-            with st.expander(
-                f"{ticker} – ${last_price:.2f}",
-                expanded=(ticker == "AAPL")
-            ):
-
-                fig = go.Figure(
-                    data=[
-                        go.Candlestick(
-                            x=data.index,
-                            open=data["Open"],
-                            high=data["High"],
-                            low=data["Low"],
-                            close=data["Close"],
-                            increasing_line_color="#22c55e",
-                            decreasing_line_color="#ef4444"
-                        )
-                    ]
-                )
-
-                fig.update_layout(
-                    title=f"{ticker} Price Chart (6 Months)",
-                    height=450,
-                    margin=dict(l=30, r=30, t=50, b=30),
-                    paper_bgcolor="#0b0f16",
-                    plot_bgcolor="#0b0f16",
-                    font=dict(color="white"),
-                    xaxis_title="Date",
-                    yaxis_title="Price ($)",
-                    xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=True, gridcolor="#1f2937"),
-                    xaxis_rangeslider_visible=False
-                )
-
-                st.plotly_chart(fig, use_container_width=True)
-
-        # =============================================
-        # 🚀 ADVANCED INVESTMENT DASHBOARD (UNCHANGED)
-        # =============================================
-        st.markdown("---")
-        st.markdown("## 🚀 Advanced Market Analytics")
-
-        ADVANCED_DASHBOARD_URL = (
-            "https://dashboard-bcmp6nu5yrwsgkpywwc634.streamlit.app/"
-        )
-
-        st.markdown(
-            f"""
-            <div style="
-                padding:20px;
-                border-radius:16px;
-                background:linear-gradient(135deg,#1f2937,#111827);
-                border:1px solid #374151;
-            ">
-                <h3 style="color:white;">📊 Full Investment Dashboard</h3>
-                <p style="color:#9CA3AF;">
-                    Explore real-time prices, watchlists, analytics,
-                    and advanced visualizations.
-                </p>
-                <a href="{ADVANCED_DASHBOARD_URL}" target="_blank">
-                    <button style="
-                        padding:12px 22px;
-                        font-size:16px;
-                        border:none;
-                        border-radius:12px;
-                        background:#4F46E5;
-                        color:white;
-                        cursor:pointer;
-                    ">
-                        🔎 Open Advanced Dashboard
-                    </button>
-                </a>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        return None
-
                     debt_balance = st.number_input("Current Balance", min_value=0.0, step=100.0)
 
                 with col2:
@@ -2580,4 +2537,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
