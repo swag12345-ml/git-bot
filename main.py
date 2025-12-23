@@ -1,3 +1,11 @@
+"""
+AI Financial Advisor Application - LLAMA 3.3
+A comprehensive financial planning tool with AI-powered insights
+
+Required pip packages:
+pip install streamlit plotly pandas numpy python-dotenv langchain-groq
+"""
+
 import streamlit as st
 import os
 import json
