@@ -1896,6 +1896,36 @@ class FinancialFlows:
 
 
 
+
+
+
+
+    @staticmethod
+    def debt_repayment_flow():
+        """Interactive debt repayment planning flow."""
+        if not TEST_MODE:
+            st.markdown('<div class="flow-card"><h2>💳 Debt Freedom Planner</h2><p>Let\'s create a strategic plan to eliminate your debt efficiently.</p></div>', unsafe_allow_html=True)
+
+        if 'debts' not in st.session_state:
+            st.session_state.debts = []
+
+        # Reset form functionality
+        if not TEST_MODE:
+            if st.button("🔄 Reset Form", key="reset_debt"):
+                for key in list(st.session_state.keys()):
+                    if key.endswith("_form_data") or key.startswith("expense_") or key == "debts":
+                        del st.session_state[key]
+                st.rerun()
+
+        if not TEST_MODE:
+            st.subheader("Step 1: Your Current Debts")
+
+            with st.expander("Add New Debt", expanded=len(st.session_state.debts) == 0):
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")class FinancialFlows:
+
     @staticmethod
     def investing_flow():
         """Real-Time Individual Stock Charts with External Advanced Analytics Link"""
@@ -1942,10 +1972,15 @@ class FinancialFlows:
                 progress=False
             )
 
+            # ✅ FIX: FLATTEN MULTI-INDEX COLUMNS
+            if hasattr(data.columns, "levels"):
+                data.columns = data.columns.get_level_values(0)
+
             if data.empty:
                 st.warning(f"No data for {ticker}")
                 continue
 
+            # ✅ CLEAN OHLC DATA
             data = data.dropna(subset=["Open", "High", "Low", "Close"])
 
             if len(data) < 10:
@@ -1954,7 +1989,10 @@ class FinancialFlows:
 
             last_price = float(data["Close"].iloc[-1])
 
-            with st.expander(f"{ticker} – ${last_price:.2f}", expanded=(ticker == "AAPL")):
+            with st.expander(
+                f"{ticker} – ${last_price:.2f}",
+                expanded=(ticker == "AAPL")
+            ):
 
                 fig = go.Figure(
                     data=[
@@ -1986,6 +2024,9 @@ class FinancialFlows:
 
                 st.plotly_chart(fig, use_container_width=True)
 
+        # =============================================
+        # 🚀 ADVANCED INVESTMENT DASHBOARD (UNCHANGED)
+        # =============================================
         st.markdown("---")
         st.markdown("## 🚀 Advanced Market Analytics")
 
@@ -2026,35 +2067,6 @@ class FinancialFlows:
 
         return None
 
-
-
-
-
-    @staticmethod
-    def debt_repayment_flow():
-        """Interactive debt repayment planning flow."""
-        if not TEST_MODE:
-            st.markdown('<div class="flow-card"><h2>💳 Debt Freedom Planner</h2><p>Let\'s create a strategic plan to eliminate your debt efficiently.</p></div>', unsafe_allow_html=True)
-
-        if 'debts' not in st.session_state:
-            st.session_state.debts = []
-
-        # Reset form functionality
-        if not TEST_MODE:
-            if st.button("🔄 Reset Form", key="reset_debt"):
-                for key in list(st.session_state.keys()):
-                    if key.endswith("_form_data") or key.startswith("expense_") or key == "debts":
-                        del st.session_state[key]
-                st.rerun()
-
-        if not TEST_MODE:
-            st.subheader("Step 1: Your Current Debts")
-
-            with st.expander("Add New Debt", expanded=len(st.session_state.debts) == 0):
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    debt_name = st.text_input("Debt Name (e.g., Credit Card, Student Loan)")
                     debt_balance = st.number_input("Current Balance", min_value=0.0, step=100.0)
 
                 with col2:
