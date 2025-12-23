@@ -1914,7 +1914,8 @@ class FinancialFlows:
                 snap=get_market_snapshot()
                 st.markdown("### 🌍 Market Snapshot (5-Day Change)")
                 c1,c2,c3,c4,c5=st.columns(5)
-                for (n,v),c in zip(snap.items(),[c1,c2,c3,c4,c5]): c.metric(n,f"{v:+.2f}%", "⬆️" if v>0 else "⬇️")
+                for (n,v),c in zip(snap.items(),[c1,c2,c3,c4,c5]):
+                    c.metric(n,f"{v:+.2f}%", "⬆️" if v>0 else "⬇️")
 
                 if not override:
                     st.markdown("### 🤖 AI Suggested Allocation")
@@ -1934,23 +1935,60 @@ Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reas
                             sug=json.loads(r.content)
                         except:
                             sug={"Stocks":50,"Bonds":25,"Gold":10,"Crypto":5,"Cash":10,"Reasoning":"Default suggestion"}
+
                         cols=st.columns(5)
-                        for i,k in enumerate(["Stocks","Bonds","Gold","Crypto","Cash"]): cols[i].metric(k,f"{sug[k]}%")
+                        for i,k in enumerate(["Stocks","Bonds","Gold","Crypto","Cash"]):
+                            cols[i].metric(k,f"{sug[k]}%")
+
                         st.info("💬 "+sug["Reasoning"])
                         fig=go.Figure(data=[go.Pie(labels=list(sug.keys()),values=list(sug.values()),hole=0.4)])
-                        fig.update_layout(title="AI Portfolio Mix",height=340,paper_bgcolor='#1f2937',plot_bgcolor='#1f2937',font_color='white');st.plotly_chart(fig,use_container_width=True)
+                        fig.update_layout(title="AI Portfolio Mix",height=340,paper_bgcolor='#1f2937',plot_bgcolor='#1f2937',font_color='white')
+                        st.plotly_chart(fig,use_container_width=True)
+
                     except Exception as e:
                         st.warning(f"AI analysis unavailable: {str(e)}")
-                        sug={"Stocks":50,"Bonds":25,"Gold":10,"Crypto":5,"Cash":10,"Reasoning":"Using default allocation"}
-                        cols=st.columns(5)
-                        for i,k in enumerate(["Stocks","Bonds","Gold","Crypto","Cash"]): cols[i].metric(k,f"{sug[k]}%")
-                        st.info("💬 "+sug["Reasoning"])
+
                 else:
                     st.warning("Manual mode enabled – adjust below (=100%)")
                     s=st.slider("Stocks",0,100,50);b=st.slider("Bonds",0,100,25)
                     g=st.slider("Gold",0,100,10);c=st.slider("Crypto",0,100,5);h=st.slider("Cash",0,100,10)
                     tot=s+b+g+c+h
                     st.success("✓ 100%" if tot==100 else f"⚠️ {tot}% (total)")
+
+                # ============================================
+                # 🚀 ADVANCED INVESTMENT DASHBOARD (NEW)
+                # ============================================
+                st.markdown("---")
+                st.markdown("## 🚀 Advanced Market Analytics")
+
+                ADVANCED_DASHBOARD_URL = "https://dashboard-bcmp6nu5yrwsgkpywwc634.streamlit.app/"
+
+                st.markdown(
+                    f"""
+                    <div style="padding:20px;border-radius:16px;
+                                background:linear-gradient(135deg,#1f2937,#111827);
+                                border:1px solid #374151;">
+                        <h3 style="color:white;">📊 Full Investment Dashboard</h3>
+                        <p style="color:#9CA3AF;">
+                            Explore real-time prices, watchlists, analytics,
+                            and advanced visualizations.
+                        </p>
+                        <a href="{ADVANCED_DASHBOARD_URL}" target="_blank">
+                            <button style="
+                                padding:12px 22px;
+                                font-size:16px;
+                                border:none;
+                                border-radius:12px;
+                                background:#4F46E5;
+                                color:white;
+                                cursor:pointer;">
+                                🔎 Open Advanced Dashboard
+                            </button>
+                        </a>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
             render()
 
@@ -1959,6 +1997,7 @@ Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reas
             return test_allocation
 
         return None
+
 
     @staticmethod
     def debt_repayment_flow():
