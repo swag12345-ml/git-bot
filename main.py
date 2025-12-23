@@ -1891,72 +1891,75 @@ class FinancialFlows:
 
     @staticmethod
     def investing_flow():
-        """AI-Powered Real-Time Portfolio Builder with live market data and LLAMA suggestions."""
+        """Real-Time Market News Dashboard with External Advanced Analytics Link"""
         if not TEST_MODE:
-            st.markdown('<div class="flow-card"><h2>📈 Investment Portfolio Builder</h2><p>AI-powered real-time dashboard with live market data.</p></div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="flow-card"><h2>📈 Investment Market News</h2>'
+                '<p>Live financial news powered by Yahoo Finance</p></div>',
+                unsafe_allow_html=True
+            )
 
-        if 'profile_data' not in st.session_state:
-            st.session_state.profile_data = {
-                'risk_profile': 'Moderate',
-                'time_horizon': 10,
-                'investment_capital': 10000.0,
-                'current_age': 35
+        if not TEST_MODE:
+            st.markdown("## 📰 Real-Time Market News")
+
+            import yfinance as yf
+            from datetime import datetime
+
+            NEWS_TICKERS = {
+                "Overall Market": "^GSPC",
+                "Apple": "AAPL",
+                "Microsoft": "MSFT",
+                "Tesla": "TSLA",
+                "NVIDIA": "NVDA"
             }
 
-        if not TEST_MODE:
-            st.markdown("## 💼 AI-Powered Portfolio Builder")
-            override=st.checkbox("🔧 Manual override",False)
-            prof=st.session_state.profile_data
-            risk=prof.get("risk_profile","Moderate");yrs=prof.get("time_horizon",10)
-            cap=prof.get("investment_capital",10000.0);age=prof.get("current_age",35)
+            selected = st.selectbox("Select Market / Company", list(NEWS_TICKERS.keys()))
+            ticker = NEWS_TICKERS[selected]
 
             def render():
-                snap=get_market_snapshot()
-                st.markdown("### 🌍 Market Snapshot (5-Day Change)")
-                c1,c2,c3,c4,c5=st.columns(5)
-                for (n,v),c in zip(snap.items(),[c1,c2,c3,c4,c5]):
-                    c.metric(n,f"{v:+.2f}%", "⬆️" if v>0 else "⬇️")
+                try:
+                    stock = yf.Ticker(ticker)
+                    news = stock.news
+                except Exception:
+                    news = []
 
-                if not override:
-                    st.markdown("### 🤖 AI Suggested Allocation")
-                    try:
-                        from langchain_groq import ChatGroq
-                        llm=ChatGroq(model="llama-3.3-70b-versatile",temperature=0.4,groq_api_key=groq_api_key)
-                        txt="\\n".join([f"{k}: {v:+.2f}%" for k,v in snap.items()])
-                        prompt=f"""You are an AI financial advisor.
-Based on live 5-day market data and user profile below,
-suggest a 100% allocation across Stocks, Bonds, Gold, Crypto, Cash + reasoning.
+                if not news:
+                    st.warning("Live market news unavailable at the moment.")
+                    return
 
-Market Data: {txt}
-Risk Profile:{risk}  Time Horizon:{yrs}  Capital:${cap:,}  Age:{age}
-Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reasoning\":\"\"}}"""
-                        r=llm.invoke(prompt)
-                        try:
-                            sug=json.loads(r.content)
-                        except:
-                            sug={"Stocks":50,"Bonds":25,"Gold":10,"Crypto":5,"Cash":10,"Reasoning":"Default suggestion"}
+                for item in news[:6]:
+                    title = item.get("title", "No title")
+                    publisher = item.get("publisher", "Unknown source")
+                    link = item.get("link", "#")
+                    ts = item.get("providerPublishTime")
 
-                        cols=st.columns(5)
-                        for i,k in enumerate(["Stocks","Bonds","Gold","Crypto","Cash"]):
-                            cols[i].metric(k,f"{sug[k]}%")
+                    time_str = (
+                        datetime.fromtimestamp(ts).strftime("%d %b %Y, %I:%M %p")
+                        if ts else "Time unavailable"
+                    )
 
-                        st.info("💬 "+sug["Reasoning"])
-                        fig=go.Figure(data=[go.Pie(labels=list(sug.keys()),values=list(sug.values()),hole=0.4)])
-                        fig.update_layout(title="AI Portfolio Mix",height=340,paper_bgcolor='#1f2937',plot_bgcolor='#1f2937',font_color='white')
-                        st.plotly_chart(fig,use_container_width=True)
-
-                    except Exception as e:
-                        st.warning(f"AI analysis unavailable: {str(e)}")
-
-                else:
-                    st.warning("Manual mode enabled – adjust below (=100%)")
-                    s=st.slider("Stocks",0,100,50);b=st.slider("Bonds",0,100,25)
-                    g=st.slider("Gold",0,100,10);c=st.slider("Crypto",0,100,5);h=st.slider("Cash",0,100,10)
-                    tot=s+b+g+c+h
-                    st.success("✓ 100%" if tot==100 else f"⚠️ {tot}% (total)")
+                    st.markdown(
+                        f"""
+                        <div style="
+                            padding:16px;
+                            margin-bottom:14px;
+                            border-radius:14px;
+                            background:#111827;
+                            border:1px solid #374151;">
+                            <h4 style="color:white;">🗞️ {title}</h4>
+                            <p style="color:#9CA3AF;">
+                                {publisher} · {time_str}
+                            </p>
+                            <a href="{link}" target="_blank" style="color:#60A5FA;">
+                                Read full article →
+                            </a>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
                 # ============================================
-                # 🚀 ADVANCED INVESTMENT DASHBOARD (NEW)
+                # 🚀 ADVANCED INVESTMENT DASHBOARD BUTTON
                 # ============================================
                 st.markdown("---")
                 st.markdown("## 🚀 Advanced Market Analytics")
@@ -1965,13 +1968,15 @@ Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reas
 
                 st.markdown(
                     f"""
-                    <div style="padding:20px;border-radius:16px;
-                                background:linear-gradient(135deg,#1f2937,#111827);
-                                border:1px solid #374151;">
+                    <div style="
+                        padding:22px;
+                        border-radius:16px;
+                        background:linear-gradient(135deg,#1f2937,#020617);
+                        border:1px solid #374151;">
                         <h3 style="color:white;">📊 Full Investment Dashboard</h3>
                         <p style="color:#9CA3AF;">
-                            Explore real-time prices, watchlists, analytics,
-                            and advanced visualizations.
+                            View real-time charts, advanced analytics,
+                            watchlists, and detailed market insights.
                         </p>
                         <a href="{ADVANCED_DASHBOARD_URL}" target="_blank">
                             <button style="
@@ -1993,10 +1998,10 @@ Return JSON {{\"Stocks\":%,\"Bonds\":%,\"Gold\":%,\"Crypto\":%,\"Cash\":%,\"Reas
             render()
 
         if TEST_MODE:
-            test_allocation = FinancialCalculator.calculate_investment_allocation('moderate', 15, 25000.0, 35)
-            return test_allocation
+            return {"news_loaded": True}
 
         return None
+
 
 
     @staticmethod
